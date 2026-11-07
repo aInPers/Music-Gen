@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from .drums import DrumInstrument, pad_label
+from .notes import midi_to_name
 from .sampler import SampleInstrument, SynthInstrument
 from ..samples import fetch
 
@@ -26,7 +28,7 @@ class InstrumentRegistry:
 
     @property
     def available(self) -> list[str]:
-        return list(fetch.SOURCES)
+        return list(fetch.SOURCES) + list(fetch.BUILTIN)
 
     def synth(self) -> SynthInstrument:
         """兜底合成器（不产生警告），用于采样缺失时顶替。"""
@@ -38,6 +40,11 @@ class InstrumentRegistry:
         key = fetch.resolve(name)
         if key in self._cache:
             return self._cache[key]
+
+        if key in fetch.BUILTIN:
+            instrument = DrumInstrument(key, sample_rate=self.sample_rate)
+            self._cache[key] = instrument
+            return instrument
 
         instrument: SampleInstrument | SynthInstrument
         if key in fetch.SOURCES and fetch.available_notes(key, self.cache_root):
@@ -64,3 +71,10 @@ class InstrumentRegistry:
                 self._warned.add(key)
         self._cache[key] = instrument
         return instrument
+
+
+def note_names(instrument: str, pitches) -> str:
+    """音符在界面上的写法：鼓轨显示「底鼓/军鼓…」，其余乐器显示音名。"""
+    if fetch.resolve(instrument) in fetch.BUILTIN:
+        return ",".join(pad_label(p) for p in pitches)
+    return ",".join(midi_to_name(p) for p in pitches)

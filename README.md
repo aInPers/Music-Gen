@@ -8,8 +8,10 @@
 
 - **工程即 XML**：一个 `*.musicproj` + 每条音轨一个 `*.track.xml`，可读、可手改、好做版本管理
 - **按音轨控制**：乐器、速度（可逐轨覆盖）、音量、声像、混响、是否循环、循环长度/次数、移调
-- **四种真实音色**：钢琴 / 小提琴 / 大提琴 / 小号，FluidR3 GM 逐音采样（开源），共 212 个采样；
-  多镜像并发下载、本地缓存、逐件电平校准，缺采样时自动回退内置合成器
+- **六种真实音色 + 鼓组**：钢琴 / 小提琴 / 大提琴 / 小号 / 竖笛 / 吉他，FluidR3 GM 逐音采样（开源），
+  共 298 个采样；多镜像并发下载、本地缓存、逐件电平校准，缺采样时自动回退内置合成器
+- **架子鼓不用下载**：内置合成鼓组，鼓谱直接写 `pitch="kick,snare"`、`pitch="hihat"`，
+  GM 打击乐 35–82 全映射，力度控制音量与亮度
 - **乐器随手换**：工程里写 `instrument="cello"` 或 `instrument="大提琴"` 都行，界面属性面板有下拉框
 - **渲染质量**：力度→音量+亮度、松键释放、合成 IR 混响、等功率声像、峰值归一化、16/24/32bit 与 32bit float 输出
 - **内置预览**：渲染完直接在应用里播放——播放/暂停、停止、拖动进度定位、音量，卷帘与波形上有播放头
@@ -25,8 +27,9 @@
 
 ```bat
 py -3 -m pip install -r requirements.txt   # numpy / soundfile / sounddevice
-py -3 -m musicgen samples fetch                     # 下载全部音源（四件乐器，约 6MB）
+py -3 -m musicgen samples fetch                     # 下载全部音源（六件乐器，约 8MB）
 py -3 -m musicgen render examples\twinkle\twinkle.musicproj -o twinkle.wav  # 《小星星》完整编曲
+py -3 -m musicgen render examples\band\band.musicproj -o band.wav          # 竖笛 + 吉他 + 鼓
 py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen render examples\ensemble\ensemble.musicproj -o trio.wav   # 四重奏示例
 py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
@@ -43,7 +46,7 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
   <track file="tracks/ostinato.track.xml" gain="-4dB"/>
 </musicproj>
 
-<!-- tracks/violin.track.xml：instrument 可写 violin / cello / trumpet / piano，也可写中文名 -->
+<!-- tracks/violin.track.xml：instrument 可写 violin / cello / trumpet / piano / recorder / guitar / drums，也可写中文名 -->
 <track name="Violin" instrument="violin" gain="-3dB" pan="0.22" reverb="0.35">
   <note time="0" dur="1" pitch="A4" vel="0.72"/>
 </track>
@@ -59,7 +62,17 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 </track>
 ```
 
-时值统一用「拍」，支持 `1/4` 与 `0.5` 两种写法；`pitch="C4,E4,G4"` 直接写和弦。
+```xml
+<!-- tracks/drums.track.xml：鼓件的名字直接当音高写，不用记 GM 编号 -->
+<track name="Drums" instrument="drums" gain="0dB" reverb="0.12">
+  <note time="0" dur="0.25" pitch="kick,hat"/>
+  <note time="1" dur="0.25" pitch="snare"/>
+  <note time="1.5" dur="0.25" pitch="openhat"/>
+</track>
+```
+
+时值统一用「拍」，支持 `1/4` 与 `0.5` 两种写法；`pitch="C4,E4,G4"` 直接写和弦；
+鼓件名 `kick` / `snare` / `hat` / `openhat` / `crash` / `tom1` / `floor` 见[项目文档 §8.4](docs/项目文档.md)。
 
 ## 命令
 

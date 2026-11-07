@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 竖笛主旋律（C 大调，8 小节）。竖笛采样音域 C4–C7，这里的音都在 C4–A4，正好在核心音区。
+     第 1–4 小节是一个问句，第 5–8 小节换头收在主音上。 -->
+<track name="Recorder" instrument="recorder" gain="-1.5dB" pan="0.12" reverb="0.30">
+
+  <!-- 第 1 小节 -->
+  <note time="0" dur="1" pitch="E4" vel="0.62"/>
+  <note time="1" dur="1" pitch="E4" vel="0.60"/>
+  <note time="2" dur="2" pitch="G4" vel="0.64"/>
+
+  <!-- 第 2 小节 -->
+  <note time="4" dur="1" pitch="A4" vel="0.66"/>
+  <note time="5" dur="1" pitch="G4" vel="0.64"/>
+  <note time="6" dur="2" pitch="E4" vel="0.62"/>
+
+  <!-- 第 3 小节 -->
+  <note time="8" dur="1" pitch="F4" vel="0.66"/>
+  <note time="9" dur="1" pitch="F4" vel="0.64"/>
+  <note time="10" dur="2" pitch="A4" vel="0.68"/>
+
+  <!-- 第 4 小节：长音，落在属音上等下一句 -->
+  <note time="12" dur="4" pitch="G4" vel="0.70"/>
+
+  <!-- 第 5 小节 -->
+  <note time="16" dur="1" pitch="E4" vel="0.70"/>
+  <note time="17" dur="1" pitch="E4" vel="0.68"/>
+  <note time="18" dur="2" pitch="G4" vel="0.72"/>
+
+  <!-- 第 6 小节 -->
+  <note time="20" dur="1" pitch="A4" vel="0.72"/>
+  <note time="21" dur="1" pitch="G4" vel="0.70"/>
+  <note time="22" dur="2" pitch="E4" vel="0.68"/>
+
+  <!-- 第 7 小节：下行三音，把旋律推回主音 -->
+  <note time="24" dur="1" pitch="D4" vel="0.72"/>
+  <note time="25" dur="1" pitch="E4" vel="0.70"/>
+  <note time="26" dur="2" pitch="F4" vel="0.74"/>
+
+  <!-- 第 8 小节：主音收尾，和鼓的加花、吊镲一起落下 -->
+  <note time="28" dur="4" pitch="C4" vel="0.68"/>
+</track>

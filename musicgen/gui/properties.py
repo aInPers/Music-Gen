@@ -106,6 +106,9 @@ class PropertiesPanel(tk.Frame):
 
     def _refresh_sample_state(self, instrument_note: str = "") -> None:
         key = fetch.resolve(self.instrument.get())
+        if key in fetch.BUILTIN:
+            self.labels["samples"].configure(text="内置合成 · 无需采样", fg=T["ok"])
+            return
         if key not in fetch.SOURCES:
             self.labels["samples"].configure(text="未注册 · 用合成器", fg=T["warn"])
             return
@@ -179,4 +182,4 @@ class PropertiesPanel(tk.Frame):
 
 def instrument_items() -> list[tuple[str, str]]:
     """下拉框选项：已注册乐器（中文名 + 注册键）。"""
-    return [(key, fetch.display(key)) for key in fetch.SOURCES]
+    return [(key, fetch.display(key)) for key in fetch.instrument_keys()]

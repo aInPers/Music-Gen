@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 民谣吉他伴奏：每小节两下扫弦（1 拍、3 拍），四个音错开 0.02 拍模拟「下扫」，
+     dur=1.9 让和弦自然延音。和声：C C F G | C Am G C -->
+<track name="Guitar" instrument="guitar" gain="-7dB" pan="-0.2" reverb="0.26">
+
+  <!-- 第 1 小节：C -->
+  <note time="0" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="0.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="0.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="0.06" dur="1.9" pitch="E4" vel="0.47"/>
+  <note time="2" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="2.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="2.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="2.06" dur="1.9" pitch="E4" vel="0.47"/>
+
+  <!-- 第 2 小节：C -->
+  <note time="4" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="4.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="4.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="4.06" dur="1.9" pitch="E4" vel="0.47"/>
+  <note time="6" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="6.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="6.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="6.06" dur="1.9" pitch="E4" vel="0.47"/>
+
+  <!-- 第 3 小节：F -->
+  <note time="8" dur="1.9" pitch="F2" vel="0.56"/>
+  <note time="8.02" dur="1.9" pitch="C3" vel="0.53"/>
+  <note time="8.04" dur="1.9" pitch="F3" vel="0.50"/>
+  <note time="8.06" dur="1.9" pitch="A3" vel="0.47"/>
+  <note time="10" dur="1.9" pitch="F2" vel="0.56"/>
+  <note time="10.02" dur="1.9" pitch="C3" vel="0.53"/>
+  <note time="10.04" dur="1.9" pitch="F3" vel="0.50"/>
+  <note time="10.06" dur="1.9" pitch="A3" vel="0.47"/>
+
+  <!-- 第 4 小节：G -->
+  <note time="12" dur="1.9" pitch="G2" vel="0.56"/>
+  <note time="12.02" dur="1.9" pitch="D3" vel="0.53"/>
+  <note time="12.04" dur="1.9" pitch="G3" vel="0.50"/>
+  <note time="12.06" dur="1.9" pitch="B3" vel="0.47"/>
+  <note time="14" dur="1.9" pitch="G2" vel="0.56"/>
+  <note time="14.02" dur="1.9" pitch="D3" vel="0.53"/>
+  <note time="14.04" dur="1.9" pitch="G3" vel="0.50"/>
+  <note time="14.06" dur="1.9" pitch="B3" vel="0.47"/>
+
+  <!-- 第 5 小节：C -->
+  <note time="16" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="16.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="16.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="16.06" dur="1.9" pitch="E4" vel="0.47"/>
+  <note time="18" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="18.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="18.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="18.06" dur="1.9" pitch="E4" vel="0.47"/>
+
+  <!-- 第 6 小节：Am -->
+  <note time="20" dur="1.9" pitch="A2" vel="0.56"/>
+  <note time="20.02" dur="1.9" pitch="E3" vel="0.53"/>
+  <note time="20.04" dur="1.9" pitch="A3" vel="0.50"/>
+  <note time="20.06" dur="1.9" pitch="C4" vel="0.47"/>
+  <note time="22" dur="1.9" pitch="A2" vel="0.56"/>
+  <note time="22.02" dur="1.9" pitch="E3" vel="0.53"/>
+  <note time="22.04" dur="1.9" pitch="A3" vel="0.50"/>
+  <note time="22.06" dur="1.9" pitch="C4" vel="0.47"/>
+
+  <!-- 第 7 小节：G -->
+  <note time="24" dur="1.9" pitch="G2" vel="0.56"/>
+  <note time="24.02" dur="1.9" pitch="D3" vel="0.53"/>
+  <note time="24.04" dur="1.9" pitch="G3" vel="0.50"/>
+  <note time="24.06" dur="1.9" pitch="B3" vel="0.47"/>
+  <note time="26" dur="1.9" pitch="G2" vel="0.56"/>
+  <note time="26.02" dur="1.9" pitch="D3" vel="0.53"/>
+  <note time="26.04" dur="1.9" pitch="G3" vel="0.50"/>
+  <note time="26.06" dur="1.9" pitch="B3" vel="0.47"/>
+
+  <!-- 第 8 小节：C -->
+  <note time="28" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="28.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="28.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="28.06" dur="1.9" pitch="E4" vel="0.47"/>
+  <note time="30" dur="1.9" pitch="C3" vel="0.56"/>
+  <note time="30.02" dur="1.9" pitch="G3" vel="0.53"/>
+  <note time="30.04" dur="1.9" pitch="C4" vel="0.50"/>
+  <note time="30.06" dur="1.9" pitch="E4" vel="0.47"/>
+
+</track>

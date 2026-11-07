@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 乐队小样（Band Sketch）· C 大调 · 100BPM · 4/4 · 8 小节
+     竖笛主旋律 + 民谣吉他扫弦 + 架子鼓，演示三件新乐器。
+     架子鼓是内置合成鼓组，不需要下载音源；竖笛与吉他采样来自 FluidR3 GM，
+     首次使用先跑 samples fetch，乐器写 recorder、guitar。 -->
+<musicproj name="乐队小样" bpm="100" sampleRate="44100" beatsPerBar="4"
+           length="auto" tail="2s" masterGain="-1dB" normalize="true">
+  <track file="tracks/recorder.track.xml"/>
+  <track file="tracks/guitar.track.xml"/>
+  <track file="tracks/drums.track.xml"/>
+</musicproj>

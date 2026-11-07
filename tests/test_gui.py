@@ -150,6 +150,34 @@ class GuiTests(unittest.TestCase):
         self.app.open_project(str(self.project_path))
         self.app.update()
 
+    def test_drum_track_shows_builtin_and_pad_names(self) -> None:
+        source = ROOT / "examples" / "band"
+        if not source.exists():
+            self.skipTest("乐队示例不存在")
+        target = Path(self.tmp) / "band"
+        if not target.exists():  # 拷一份，避免用例改写仓库里的示例
+            shutil.copytree(source, target)
+
+        self.app.open_project(str(target / "band.musicproj"))
+        self.app.select_track(2)
+        self.app.update()
+
+        props = self.app.dock_manager.panel("properties")
+        self.assertEqual(props.instrument.get(), "drums")
+        self.assertIn("内置", props.labels["samples"].cget("text"))
+
+        self.app.select_note(2, 1)  # 第 1 小节的底鼓
+        self.app.update()
+        panel = self.app.dock_manager.panel("note")
+        self.assertEqual(panel.vars["pitch"].get(), "底鼓")
+
+        # 鼓件名能解析、能写回
+        self.app.on_note_apply({"time": "0", "dur": "0.25", "pitch": "底鼓,snare", "velocity": 0.8})
+        self.app.update()
+        self.assertEqual(self.app.project.tracks[2].notes[1].pitches, [36, 38])
+
+        self.app.open_project(str(self.project_path))  # 复原，后面的用例继续用示例工程
+
     def test_switch_instrument(self) -> None:
         self.app.open_project(str(self.project_path))
         self.app.select_track(1)

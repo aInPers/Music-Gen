@@ -14,6 +14,36 @@ SHARP_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 MIDI_MIN = 0
 MIDI_MAX = 127
 
+#: 架子鼓的写法：鼓件名 → GM 打击乐音高。
+#: 让鼓谱可以直接写 ``pitch="kick,snare"``，不用记 GM 编号（36=底鼓、38=军鼓…）；
+#: 写 ``pitch="C2"`` 这种音名同样有效，两者等价。
+PERCUSSION_ALIASES: dict[str, int] = {
+    "kick": 36, "bd": 36, "bassdrum": 36, "底鼓": 36, "大鼓": 36, "脚鼓": 36,
+    "kick2": 35, "bd2": 35,
+    "snare": 38, "sd": 38, "军鼓": 38, "小鼓": 38,
+    "snare2": 40,
+    "rim": 37, "sidestick": 37, "rimshot": 37, "边击": 37, "鼓边": 37,
+    "clap": 39, "handclap": 39, "拍手": 39,
+    "hat": 42, "hihat": 42, "hh": 42, "closedhat": 42, "闭镲": 42, "踩镲": 42,
+    "pedalhat": 44, "pedal": 44, "踏镲": 44,
+    "openhat": 46, "oh": 46, "开镲": 46,
+    "crash": 49, "吊镲": 49, "强音镲": 49,
+    "crash2": 57,
+    "splash": 55, "水镲": 55,
+    "china": 52, "中国镲": 52,
+    "ride": 51, "叮叮镲": 51,
+    "ride2": 59,
+    "bell": 53, "ridebell": 53, "镲帽": 53,
+    "tom1": 50, "hightom": 50, "高音嗵鼓": 50,
+    "tom2": 48, "midtom": 48, "中音嗵鼓": 48,
+    "tom3": 47, "中低嗵鼓": 47,
+    "tom4": 45, "lowtom": 45, "低音嗵鼓": 45,
+    "floor": 41, "floortom": 41, "落地嗵鼓": 41,
+    "tamb": 54, "tambourine": 54, "铃鼓": 54,
+    "cowbell": 56, "牛铃": 56,
+    "shaker": 82, "沙锤": 82,
+}
+
 
 class PitchError(ValueError):
     """音名无法解析。"""
@@ -22,7 +52,8 @@ class PitchError(ValueError):
 def parse_pitch(text: str) -> int:
     """把音名解析成 MIDI 音高。
 
-    支持 ``C4`` / ``Db4`` / ``F#3`` / ``C-1`` / ``bB4``（老式写法）/ 纯数字 ``60``。
+    支持 ``C4`` / ``Db4`` / ``F#3`` / ``C-1`` / ``bB4``（老式写法）/ 纯数字 ``60``，
+    以及架子鼓的鼓件名 ``kick`` / ``snare`` / ``hihat``（等价于对应的 GM 打击乐编号）。
     """
     raw = str(text).strip()
     if not raw:
@@ -32,6 +63,10 @@ def parse_pitch(text: str) -> int:
         if not MIDI_MIN <= value <= MIDI_MAX:
             raise PitchError(f"MIDI 音高超出范围 0-127: {value}")
         return value
+
+    drum = PERCUSSION_ALIASES.get(raw.lower())
+    if drum is not None:
+        return drum
 
     text = raw.replace("\u266f", "#").replace("\u266d", "b")
     # 兼容 bB4 / #F4 这种把变音记号写在字母前面的写法

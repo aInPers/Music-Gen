@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from ..core.notes import midi_to_name
+from ..core.instruments import note_names
 from . import theme, widgets
 
 T = theme.PALETTE
@@ -157,7 +157,7 @@ class NotePanel(tk.Frame):
         )
         self.vars["time"].set(f"{note.time:g}")
         self.vars["dur"].set(f"{note.dur:g}")
-        self.vars["pitch"].set(",".join(midi_to_name(p) for p in note.pitches))
+        self.vars["pitch"].set(note_names(track.instrument, note.pitches))
         self.velocity.set(note.velocity)  # type: ignore[attr-defined]
 
     def values(self) -> dict:
@@ -174,7 +174,7 @@ class NotePanel(tk.Frame):
         _, track, index = self.context
         note = track.notes[index]
         return (f"{track.name} 第 {index + 1} 个音符 · "
-                f"{','.join(midi_to_name(p) for p in note.pitches)} · "
+                f"{note_names(track.instrument, note.pitches)} · "
                 f"{note.time:g}→{note.time + note.dur:g} 拍")
 
     def _apply(self) -> None:

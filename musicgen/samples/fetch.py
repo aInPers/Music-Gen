@@ -139,14 +139,50 @@ SOURCES: dict[str, InstrumentSource] = {
         midi_high=84,
         note_range_label="E3–C6（小号常用音域）",
     ),
+    "recorder": InstrumentSource(
+        key="recorder",
+        title="FluidR3 GM — Recorder",
+        license=_FLUID_LICENSE,
+        homepage=_FLUID_HOME,
+        extension="mp3",
+        url_templates=_fluid_mirrors("recorder"),
+        midi_low=60,
+        midi_high=96,
+        note_range_label="C4–C7（竖笛常用音域）",
+    ),
+    "guitar": InstrumentSource(
+        key="guitar",
+        title="FluidR3 GM — Acoustic Guitar (steel)",
+        license=_FLUID_LICENSE,
+        homepage=_FLUID_HOME,
+        extension="mp3",
+        url_templates=_fluid_mirrors("acoustic_guitar_steel"),
+        midi_low=40,
+        midi_high=88,
+        note_range_label="E2–E6（民谣吉他常用音域）",
+    ),
 }
+
+#: 内置乐器：不走采样下载，由 core/drums.py 程序化合成
+BUILTIN: dict[str, str] = {
+    "drums": "内置合成鼓组（GM 打击乐映射）",
+}
+
+
+def instrument_keys() -> list[str]:
+    """界面下拉框里的全部乐器（采样乐器在前，内置乐器在后）。"""
+    return list(SOURCES) + list(BUILTIN)
+
 
 #: 界面显示用的中文名（顺序即下拉框顺序）
 LABELS: dict[str, str] = {
     "piano": "钢琴",
-    "violin": "小提琴",
     "cello": "大提琴",
+    "violin": "小提琴",
     "trumpet": "小号",
+    "recorder": "竖笛",
+    "guitar": "吉他",
+    "drums": "架子鼓",
 }
 
 #: 工程文件里可以直接写中文名 / 常见别名
@@ -155,9 +191,26 @@ ALIASES: dict[str, str] = {
     "小提琴": "violin",
     "大提琴": "cello",
     "小号": "trumpet",
+    "竖笛": "recorder",
+    "牧童笛": "recorder",
+    "木笛": "recorder",
+    "吉他": "guitar",
+    "民谣吉他": "guitar",
+    "木吉他": "guitar",
+    "架子鼓": "drums",
+    "鼓组": "drums",
+    "鼓": "drums",
+    "打击乐": "drums",
     "grand piano": "piano",
     "strings": "violin",
     "violoncello": "cello",
+    "recorder": "recorder",
+    "acoustic": "guitar",
+    "acoustic guitar": "guitar",
+    "drum": "drums",
+    "drumkit": "drums",
+    "kit": "drums",
+    "percussion": "drums",
 }
 
 

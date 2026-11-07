@@ -32,6 +32,8 @@ INSTRUMENT_GAIN: dict[str, float] = {
     "cello": 7.0,
     "violin": 6.0,
     "trumpet": 9.0,
+    "recorder": 5.0,
+    "guitar": 7.0,
 }
 DEFAULT_INSTRUMENT_GAIN = 10.0
 

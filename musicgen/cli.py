@@ -197,13 +197,16 @@ def cmd_samples_fetch(args: argparse.Namespace) -> int:
                     instruments.append(key)
     exit_code = 0
     for instrument in instruments:
+        if instrument in fetch.BUILTIN:
+            print(f"{fetch.label(instrument)}（{instrument}）：{fetch.BUILTIN[instrument]}，不需要下载。")
+            continue
         source = fetch.SOURCES.get(instrument)
         if source is None:
             print(
                 "未知乐器："
                 + instrument
                 + "（可选："
-                + "、".join(f"{fetch.label(k)}({k})" for k in fetch.SOURCES)
+                + "、".join(f"{fetch.label(k)}({k})" for k in fetch.instrument_keys())
                 + "）",
                 file=sys.stderr,
             )
@@ -245,6 +248,8 @@ def cmd_samples_list(args: argparse.Namespace) -> int:
         print(f"           采样 {have}/{want} [{state}] · 音域 {source.note_range_label}")
         print(f"           {source.license}")
         print(f"           {source.homepage}")
+    for key, desc in fetch.BUILTIN.items():
+        print(f"  {fetch.label(key):<5} {key:<8} {desc}")
     return 0
 
 

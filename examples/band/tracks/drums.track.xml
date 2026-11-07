@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 架子鼓（内置合成鼓组，不需要下载音源）。
+     音高直接写鼓件名：kick 底鼓 / snare 军鼓 / hat 闭镲 / openhat 开镲 /
+     crash 吊镲 / tom1 tom2 嗵鼓 / floor 落地鼓。等价于 GM 打击乐编号 36/38/42/46/49/50/48/41。
+     节奏型：底鼓 1、3 拍，军鼓 2、4 拍，闭镲八分音符；第 8 小节拆成加花。 -->
+<track name="Drums" instrument="drums" gain="0dB" pan="0" reverb="0.12">
+
+  <!-- 第 1 小节 -->
+  <note time="0" dur="0.25" pitch="crash" vel="0.62"/>
+  <note time="0" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="2" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="1" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="3" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="0" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="0.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="1" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="1.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="2" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="2.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="3" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="3.5" dur="0.25" pitch="hat" vel="0.42"/>
+
+  <!-- 第 2 小节 -->
+  <note time="4" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="6" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="5" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="7" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="4" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="4.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="5" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="5.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="6" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="6.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="7" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="7.5" dur="0.25" pitch="hat" vel="0.42"/>
+
+  <!-- 第 3 小节 -->
+  <note time="8" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="10" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="9" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="11" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="8" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="8.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="9" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="9.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="10" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="10.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="11" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="11.5" dur="0.25" pitch="hat" vel="0.42"/>
+
+  <!-- 第 4 小节 -->
+  <note time="15.5" dur="0.25" pitch="openhat" vel="0.55"/>
+  <note time="12" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="14" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="13" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="15" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="12" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="12.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="13" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="13.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="14" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="14.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="15" dur="0.25" pitch="hat" vel="0.52"/>
+
+  <!-- 第 5 小节 -->
+  <note time="16" dur="0.25" pitch="crash" vel="0.55"/>
+  <note time="16" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="18" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="17" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="19" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="16" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="16.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="17" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="17.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="18" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="18.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="19" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="19.5" dur="0.25" pitch="hat" vel="0.42"/>
+
+  <!-- 第 6 小节 -->
+  <note time="23.5" dur="0.25" pitch="openhat" vel="0.55"/>
+  <note time="20" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="22" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="21" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="23" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="20" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="20.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="21" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="21.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="22" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="22.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="23" dur="0.25" pitch="hat" vel="0.52"/>
+
+  <!-- 第 7 小节 -->
+  <note time="24" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="26" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="25" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="27" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="24" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="24.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="25" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="25.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="26" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="26.5" dur="0.25" pitch="hat" vel="0.42"/>
+  <note time="27" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="27.5" dur="0.25" pitch="hat" vel="0.42"/>
+
+  <!-- 第 8 小节：前两拍收住，后两拍军鼓 → 嗵鼓加花 -->
+  <note time="28" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="30" dur="0.25" pitch="kick" vel="0.85"/>
+  <note time="28" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="29" dur="0.25" pitch="hat" vel="0.52"/>
+  <note time="29" dur="0.25" pitch="snare" vel="0.80"/>
+  <note time="28.5" dur="0.25" pitch="snare" vel="0.5"/>
+  <note time="29.5" dur="0.25" pitch="snare" vel="0.58"/>
+  <note time="30" dur="0.25" pitch="snare" vel="0.66"/>
+  <note time="30.5" dur="0.25" pitch="tom1" vel="0.68"/>
+  <note time="31" dur="0.25" pitch="tom2" vel="0.72"/>
+  <note time="31.5" dur="0.25" pitch="floor" vel="0.78"/>
+  <note time="32" dur="0.25" pitch="crash" vel="0.70"/>
+</track>

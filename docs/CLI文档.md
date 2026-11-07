@@ -47,7 +47,7 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | 选项 | 说明 |
 | --- | --- |
 | `-h`, `--help` | 显示帮助；子命令也一样：`python -m musicgen render -h` |
-| `-V`, `--version` | 打印 `MusicGen 1.6.0` |
+| `-V`, `--version` | 打印 `MusicGen 1.7.0` |
 
 ---
 
@@ -298,12 +298,16 @@ python -m musicgen samples fetch [--instrument 名字]... [--all] [--force] [--c
 | `violin` | 小提琴 | `strings` |
 | `cello` | 大提琴 | `violoncello` |
 | `trumpet` | 小号 | — |
+| `recorder` | 竖笛 | 牧童笛 / 木笛 |
+| `guitar` | 吉他 | 民谣吉他 / 木吉他 / `acoustic` |
+| `drums` | 架子鼓 | 鼓 / 鼓组 / 打击乐 / `drum` / `kit`（**内置鼓组，无需下载**） |
 
 ```bat
-python -m musicgen samples fetch                        :: 四件全下（约 6MB）
+python -m musicgen samples fetch                        :: 六件采样全下（约 8MB）
 python -m musicgen samples fetch --instrument cello      :: 只下大提琴
-python -m musicgen samples fetch --instrument 小提琴,小号 :: 中文名、逗号分隔
+python -m musicgen samples fetch --instrument 竖笛,吉他   :: 中文名、逗号分隔
 python -m musicgen samples fetch --instrument piano --instrument cello --force :: 重下
+python -m musicgen samples fetch --instrument drums      :: 内置鼓组，只会回一句「不需要下载」
 ```
 
 下载行为：
@@ -353,6 +357,10 @@ python -m musicgen samples list [--cache-dir 目录]
   大提琴   cello    FluidR3 GM — Cello
            采样 49/49 [就绪] · 音域 C2–C6（大提琴常用音域）
            ...
+  吉他    guitar   FluidR3 GM — Acoustic Guitar (steel)
+           采样 49/49 [就绪] · 音域 E2–E6（民谣吉他常用音域）
+           ...
+  架子鼓  drums    内置合成鼓组（GM 打击乐映射）
 ```
 
 状态含义：`就绪`（齐全）、`部分`（下过但缺文件，再跑一次 `fetch` 会补）、`未下载`。
@@ -469,7 +477,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 | 提示 | 含义 | 处理 |
 | --- | --- | --- |
-| `未注册的乐器 'x'，使用内置合成器。已支持: …` | 乐器名不在注册表 | 改成四件之一，或按[项目文档 §8.2](项目文档.md#82-新增一个乐器)扩展 |
+| `未注册的乐器 'x'，使用内置合成器。已支持: …` | 乐器名不在注册表 | 改成已支持的一件（含 `drums`），或按[项目文档 §8.2](项目文档.md#82-新增一个乐器)扩展 |
 | `大提琴的采样尚未下载，本次使用内置合成器。运行 …` | 这件乐器一次都没下过 | `python -m musicgen samples fetch --instrument cello` |
 | `乐器 'x' 的采样音域为 …，B1 超出范围，该音改用内置合成器` | 音高超出采样范围 | 移调 / 换音区 |
 | `没有可渲染的音轨（全部静音或为空）` | 全静音、全空轨，或独奏轨为空 | 检查 `mute` / `solo` |

@@ -353,27 +353,40 @@ class MusicGenApp(tk.Tk):
             self.status.set_progress(None)
 
     def _project_instruments(self) -> list[str]:
-        """工程里实际用到的、已注册的乐器（按注册顺序）。"""
+        """工程里实际用到的、需要下载采样的乐器（按注册顺序）。"""
         if self.project is None:
             return []
         used = {fetch.resolve(track.instrument) for track in self.project.tracks}
         return [key for key in fetch.SOURCES if key in used]
 
+    def _project_all_instruments(self) -> list[str]:
+        """工程里用到的全部乐器，含内置合成乐器（状态栏、音源摘要用）。"""
+        if self.project is None:
+            return []
+        used = {fetch.resolve(track.instrument) for track in self.project.tracks}
+        return [key for key in fetch.instrument_keys() if key in used]
+
     def _sample_line(self) -> str:
-        keys = self._project_instruments()
+        keys = self._project_all_instruments()
         if not keys:
             return "音源：—"
         parts = []
         for key in keys:
+            if key in fetch.BUILTIN:
+                parts.append(f"{fetch.label(key)} 内置")
+                continue
             have, want = fetch.instrument_status(key)
             parts.append(f"{fetch.label(key)} {have}/{want}")
         return "音源：" + " · ".join(parts)
 
     def _refresh_status_items(self) -> None:
         items = []
-        keys = self._project_instruments() or list(fetch.SOURCES)
+        keys = self._project_all_instruments() or list(fetch.instrument_keys())
         ready = 0
         for key in keys:
+            if key in fetch.BUILTIN:
+                ready += 1
+                continue
             have, want = fetch.instrument_status(key)
             if want and have >= want:
                 ready += 1

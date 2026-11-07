@@ -19,10 +19,14 @@ import math
 import tkinter as tk
 from tkinter import ttk
 
+from ..core.drums import pad_label
+from ..core.instruments import note_names
 from ..core.notes import midi_to_name
+from ..samples import fetch
 from . import theme
 
 T = theme.PALETTE
+
 
 BLACK_KEYS = (1, 3, 6, 8, 10)
 
@@ -308,7 +312,7 @@ class PianoRollPage(tk.Frame):
             _, track_index, note_index = tag.split(":")
             track = self.project.tracks[int(track_index)]
             note = track.notes[int(note_index)]
-            names = ",".join(midi_to_name(p) for p in note.pitches)
+            names = note_names(track.instrument, note.pitches)
             text = (f"{track.name} · {names} · {note.time:g}→{note.time + note.dur:g} 拍"
                     f" · 力度 {note.velocity:.2f}")
             color = T["text_dim"]
@@ -454,6 +458,7 @@ class PianoRollPage(tk.Frame):
             color = base if selected < 0 or index == selected else theme.mix(base, T["editor"], 0.35)
             if track.mute:
                 color = theme.mix(color, T["editor"], 0.3)
+            drum_track = fetch.resolve(track.instrument) in fetch.BUILTIN
             bar_h = max(2.0, row_h * 0.42)
             show_text = row_h >= 13
             for note_index, note in enumerate(track.notes):
@@ -481,7 +486,8 @@ class PianoRollPage(tk.Frame):
                         tags=(f"note:{index}", f"n:{index}:{note_index}"),
                     )
                     if show_text and width_px > 26:
-                        c.create_text(left + 4, cy, anchor="w", text=midi_to_name(pitch),
+                        c.create_text(left + 4, cy, anchor="w",
+                                      text=pad_label(pitch) if drum_track else midi_to_name(pitch),
                                       fill="#0B0B0C", font=theme.font(7))
                 # 力度条：音符底部一小段，长度 ∝ 力度
                 if bar_h >= 4 and width_px > 14:

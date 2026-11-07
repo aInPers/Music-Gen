@@ -34,6 +34,7 @@ from musicgen.core.wavio import write_wav  # noqa: E402
 
 DEMO = ROOT / "examples" / "demo" / "demo.musicproj"
 ENSEMBLE = ROOT / "examples" / "ensemble" / "ensemble.musicproj"
+BAND = ROOT / "examples" / "band" / "band.musicproj"
 
 
 class NoteTests(unittest.TestCase):
@@ -268,12 +269,12 @@ class RenderTests(unittest.TestCase):
 class InstrumentTests(unittest.TestCase):
     """乐器注册表与采样电平/音域。"""
 
-    def test_four_instruments_registered(self) -> None:
-        for key in ("piano", "cello", "violin", "trumpet"):
+    def test_sample_instruments_registered(self) -> None:
+        for key in ("piano", "cello", "violin", "trumpet", "recorder", "guitar"):
             self.assertIn(key, fetch.SOURCES)
-            source = fetch.SOURCES[key]
+        for key, source in fetch.SOURCES.items():
             self.assertLess(source.midi_low, source.midi_high)
-            self.assertTrue(source.note_range_label)
+            self.assertTrue(source.note_range_label, key)
             self.assertGreaterEqual(source.mirror_count, 3)
 
     def test_chinese_aliases(self) -> None:
@@ -281,10 +282,24 @@ class InstrumentTests(unittest.TestCase):
         self.assertEqual(fetch.resolve("小提琴"), "violin")
         self.assertEqual(fetch.resolve("小号"), "trumpet")
         self.assertEqual(fetch.resolve("钢琴"), "piano")
+        self.assertEqual(fetch.resolve("竖笛"), "recorder")
+        self.assertEqual(fetch.resolve("吉他"), "guitar")
+        self.assertEqual(fetch.resolve("架子鼓"), "drums")
+        self.assertEqual(fetch.resolve("鼓组"), "drums")
+        self.assertEqual(fetch.resolve("民谣吉他"), "guitar")
         self.assertEqual(fetch.resolve(" Violin "), "violin")
         self.assertEqual(fetch.resolve(None), "piano")
         self.assertEqual(fetch.label("cello"), "大提琴")
+        self.assertEqual(fetch.label("recorder"), "竖笛")
+        self.assertEqual(fetch.label("guitar"), "吉他")
+        self.assertEqual(fetch.label("drums"), "架子鼓")
         self.assertEqual(fetch.display("trumpet"), "小号 (trumpet)")
+
+    def test_drums_are_builtin_not_downloadable(self) -> None:
+        self.assertIn("drums", fetch.BUILTIN)
+        self.assertNotIn("drums", fetch.SOURCES)
+        self.assertIn("drums", fetch.instrument_keys())
+        self.assertEqual(fetch.instrument_status("drums"), (0, 0))
 
     def test_sample_path_uses_resolved_key(self) -> None:
         root = Path(tempfile.mkdtemp())
@@ -332,6 +347,75 @@ class InstrumentTests(unittest.TestCase):
         cello_c, piano_c = centroid("cello"), centroid("piano")
         self.assertGreater(cello_c, 0.0)
         self.assertGreater(abs(cello_c - piano_c), 80.0)
+
+
+class DrumTests(unittest.TestCase):
+    """内置合成鼓组：鼓件名解析、谱面往返、合成结果。"""
+
+    def test_drum_pitch_aliases(self) -> None:
+        cases = {
+            "kick": 36, "底鼓": 36, "大鼓": 36, "bd": 36,
+            "snare": 38, "军鼓": 38, "rim": 37, "clap": 39,
+            "hat": 42, "hihat": 42, "踩镲": 42, "openhat": 46, "pedalhat": 44,
+            "crash": 49, "吊镲": 49, "ride": 51, "bell": 53,
+            "tom1": 50, "tom2": 48, "floor": 41, "落地嗵鼓": 41,
+            "tamb": 54, "cowbell": 56, "shaker": 82,
+        }
+        for text, midi in cases.items():
+            self.assertEqual(parse_pitch(text), midi, text)
+        self.assertEqual(parse_pitches("kick,snare"), [36, 38])
+
+    def test_pad_label_roundtrip(self) -> None:
+        from musicgen.core.drums import pad_label
+
+        for midi in (36, 37, 38, 39, 42, 44, 46, 49, 51, 53, 50, 48, 47, 45, 41, 54, 56, 82):
+            self.assertEqual(parse_pitch(pad_label(midi)), midi, pad_label(midi))
+
+    def test_drum_kit_is_deterministic_and_velocity_sensitive(self) -> None:
+        from musicgen.core.drums import DrumInstrument
+
+        kit = DrumInstrument(sample_rate=44100)
+        first = kit.render_note(36, 0.8, 0.25)
+        self.assertEqual(first.shape[0], 2)
+        self.assertGreater(float(np.abs(first).max()), 0.05)
+        self.assertTrue(np.array_equal(first, kit.render_note(36, 0.8, 0.25)))
+
+        loud = float(np.abs(kit.render_note(38, 1.0, 0.25)).max())
+        soft = float(np.abs(kit.render_note(38, 0.4, 0.25)).max())
+        self.assertGreater(loud, soft * 1.8)
+
+    def test_kick_is_low_and_snare_is_bright(self) -> None:
+        from musicgen.core.drums import DrumInstrument
+
+        kit = DrumInstrument(sample_rate=44100)
+
+        def centroid(midi: int) -> float:
+            mono = kit.render_note(midi, 0.8, 0.25).mean(axis=0)
+            power = np.abs(np.fft.rfft(mono)) ** 2
+            freqs = np.fft.rfftfreq(mono.size, 1 / 44100)
+            return float((power * freqs).sum() / max(power.sum(), 1e-9))
+
+        self.assertLess(centroid(36), 200.0)     # 底鼓能量集中在低频
+        self.assertGreater(centroid(38), 1500.0)  # 军鼓以噪声为主
+
+    def test_registry_returns_drum_kit(self) -> None:
+        from musicgen.core.drums import DrumInstrument
+        from musicgen.core.instruments import InstrumentRegistry
+
+        registry = InstrumentRegistry()
+        self.assertIsInstance(registry.get("drums"), DrumInstrument)
+        self.assertIsInstance(registry.get("架子鼓"), DrumInstrument)
+
+    def test_band_example_renders(self) -> None:
+        if not BAND.exists():
+            self.skipTest("示例工程不存在")
+        project = P.load_project(BAND)
+        self.assertEqual(len(project.tracks), 3)
+        result = render_project(project, normalize=False)
+        drums = [s for s in result.track_stats if s.instrument == "drums"]
+        self.assertEqual(len(drums), 1)
+        self.assertGreater(drums[0].notes, 50)
+        self.assertGreater(drums[0].peak, 0.05)
 
 
 class WavTests(unittest.TestCase):
