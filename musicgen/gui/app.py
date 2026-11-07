@@ -76,6 +76,7 @@ class MusicGenApp(tk.Tk):
         self._log_lines: list[tuple[str, str]] = []
         self._play_timer: str | None = None
         self._save_timer: str | None = None
+        self._poll_timer: str | None = None
         self.player = AudioPlayer()
         self.player.volume = float(self._ui.get("volume", 0.9) or 0.9)
 
@@ -86,7 +87,7 @@ class MusicGenApp(tk.Tk):
 
         self.goto_page(self._ui.get("page") if self._ui.get("page") in
                        [key for key, _, _ in PAGES] else "roll")
-        self.after(90, self._poll_queue)
+        self._poll_timer = self.after(90, self._poll_queue)
         self.after(200, self._restore_sashes)
         if project_path:
             self.after(60, lambda: self.open_project(project_path))
@@ -108,7 +109,9 @@ class MusicGenApp(tk.Tk):
 
     def _restore_sashes(self) -> None:
         self.update_idletasks()
-        self.dock_manager.apply_measured_sizes(self._ui.get("sash"))
+        self.dock_manager.apply_measured_sizes(
+            self._ui.get("sashes") or self._ui.get("sash") or {}
+        )
 
     # ---------------------------------------------------------------- 布局
     def _build(self) -> None:
@@ -143,15 +146,19 @@ class MusicGenApp(tk.Tk):
                                      sashwidth=SASH, sashrelief="flat", showhandle=False)
         self.hsplit.pack(fill="both", expand=True)
 
-        self.left_area = tk.Frame(self.hsplit, bg=T["panel"])
-        self.center_host = tk.PanedWindow(self.hsplit, orient="vertical", bg=T["border"], bd=0,
-                                          sashwidth=SASH, sashrelief="flat", showhandle=False)
-        self.right_area = tk.Frame(self.hsplit, bg=T["panel"])
+        def dock_area(parent: tk.Misc) -> tk.PanedWindow:
+            """停靠区：竖向分栏，同一区里的多个面板之间也能拖动分隔条。"""
+            return tk.PanedWindow(parent, orient="vertical", bg=T["border"], bd=0,
+                                  sashwidth=SASH, sashrelief="flat", showhandle=False)
+
+        self.left_area = dock_area(self.hsplit)
+        self.center_host = dock_area(self.hsplit)
+        self.right_area = dock_area(self.hsplit)
         self.hsplit.add(self.center_host, minsize=360, stretch="always")
 
         self.editor = tk.Frame(self.center_host, bg=T["editor"])
         self.center_host.add(self.editor, minsize=180, stretch="always")
-        self.bottom_area = tk.Frame(self.center_host, bg=T["panel"])
+        self.bottom_area = dock_area(self.center_host)
 
         self._build_editor()
         self._build_docks()
@@ -296,7 +303,7 @@ class MusicGenApp(tk.Tk):
                     self._on_samples_done(payload)
         except queue.Empty:
             pass
-        self.after(90, self._poll_queue)
+        self._poll_timer = self.after(90, self._poll_queue)
 
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self._busy = busy
@@ -710,25 +717,29 @@ class MusicGenApp(tk.Tk):
         manager = self.dock_manager
         sizes = dict(manager.sizes)
         for area in ("left", "right"):
-            if str(manager.containers[area]) in manager.paned[area].panes():
+            if manager.has_pane(manager.paned[area], manager.containers[area]):
                 measured = manager.containers[area].winfo_width()
                 if measured > 40:
                     sizes[area] = measured
-        if str(manager.containers["bottom"]) in manager.paned["bottom"].panes():
+        if manager.has_pane(manager.paned["bottom"], manager.containers["bottom"]):
             measured = manager.containers["bottom"].winfo_height()
             if measured > 40:
                 sizes["bottom"] = measured
-        sashes = []
+        sashes: dict = {"main": [], "areas": {}}
         if len(self.hsplit.panes()) >= 2:
-            sashes.append(self.hsplit.sash_coord(0))
+            sashes["main"].append(list(self.hsplit.sash_coord(0)))
         if len(self.center_host.panes()) >= 2:
-            sashes.append(self.center_host.sash_coord(0))
+            sashes["main"].append(list(self.center_host.sash_coord(0)))
+        for area, container in manager.containers.items():
+            count = len(container.panes())
+            if count >= 2:
+                sashes["areas"][area] = [list(container.sash_coord(i)) for i in range(count - 1)]
         return {
             "geometry": self.geometry(),
             "page": self.page,
             "docks": manager.state(),
             "sizes": sizes,
-            "sash": sashes,
+            "sashes": sashes,
             "volume": float(self.player.volume),
         }
 
@@ -773,6 +784,18 @@ class MusicGenApp(tk.Tk):
             self.save_layout()
         finally:
             self.destroy()
+
+    def destroy(self) -> None:
+        """退出前取消所有定时器，避免 Tk 报 "after script" 残留。"""
+        for attr in ("_poll_timer", "_play_timer", "_save_timer"):
+            timer = getattr(self, attr, None)
+            if timer:
+                try:
+                    self.after_cancel(timer)
+                except Exception:  # noqa: BLE001 - 已销毁时忽略
+                    pass
+                setattr(self, attr, None)
+        super().destroy()
 
 
 def run_gui(project_path: str | None = None) -> int:

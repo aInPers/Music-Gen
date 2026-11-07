@@ -112,7 +112,7 @@ class SolutionExplorer(tk.Frame):
 
     def _icon(self, kind: str) -> tk.PhotoImage:
         if kind not in self._icons:
-            self._icons[kind] = icons.image(kind, T["panel"])
+            self._icons[kind] = icons.image(kind, T["panel"], self.tree)
         return self._icons[kind]
 
     def select_track(self, index: int) -> None:

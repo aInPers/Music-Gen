@@ -103,7 +103,10 @@ class DockManager:
     def _create(self, key: str, area: str) -> None:
         container = self.containers[area]
         widget = self.factories[key](container)
-        widget.pack(fill="both", expand=True)
+        if isinstance(container, tk.PanedWindow):
+            container.add(widget, minsize=70, stretch="always")
+        else:
+            widget.pack(fill="both", expand=True)
         self.panels[key] = widget
         self.areas[key] = area
         self._ensure_pane(area)
@@ -115,11 +118,20 @@ class DockManager:
         self.areas.pop(key, None)
         if widget is not None:
             area = self._area_from_widget(widget)
+            container = self.containers.get(area) if area else None
+            if isinstance(container, tk.PanedWindow) and self.has_pane(container, widget):
+                container.forget(widget)
             widget.destroy()
             if area:
-                self.containers[area].update_idletasks()
-                if not self.containers[area].winfo_children():
+                container.update_idletasks() if container is not None else None
+                if self._area_is_empty(area):
                     self._collapse(area)
+
+    def _area_is_empty(self, area: str) -> bool:
+        container = self.containers[area]
+        if isinstance(container, tk.PanedWindow):
+            return len(container.panes()) == 0
+        return not container.winfo_children()
 
     def _area_from_widget(self, widget: tk.Widget) -> str | None:
         for area, container in self.containers.items():
@@ -127,10 +139,15 @@ class DockManager:
                 return area
         return None
 
+    @staticmethod
+    def has_pane(paned: tk.PanedWindow, container: tk.Widget) -> bool:
+        """paned.panes() 返回的是 window 对象，必须逐项转字符串比较。"""
+        return any(str(item) == str(container) for item in paned.panes())
+
     def _ensure_pane(self, area: str) -> None:
         container = self.containers[area]
         paned = self.paned[area]
-        if str(container) in paned.panes():
+        if self.has_pane(paned, container):
             return
         minsize, default_size = AREA_SIZE[area]
         stored = self.sizes.get(area) or default_size
@@ -145,7 +162,7 @@ class DockManager:
     def _collapse(self, area: str) -> None:
         container = self.containers[area]
         paned = self.paned[area]
-        if str(container) in paned.panes():
+        if self.has_pane(paned, container):
             # 记住当前尺寸，下次停靠回来时还原
             measured = (container.winfo_height() if area == "bottom" else container.winfo_width())
             if measured > AREA_SIZE[area][0]:
@@ -169,12 +186,29 @@ class DockManager:
         header.add_menu_button(menu, "停靠 / 关闭")
 
     def apply_measured_sizes(self, sashes) -> None:
-        """恢复上次的分栏位置（sash）。传入 [[x, y], ...]。"""
+        """恢复分栏位置。新格式 {"main": [[x, y]...], "areas": {area: [[x, y]...]}}，
+        也兼容旧格式 [[x, y], ...]。"""
         try:
-            if sashes and len(self.paned["left"].panes()) >= 2:
-                self.paned["left"].sash_place(0, int(sashes[0][0]), 0)
-            if sashes and len(sashes) > 1 and len(self.paned["bottom"].panes()) >= 2:
-                self.paned["bottom"].sash_place(0, 0, int(sashes[1][1]))
+            if isinstance(sashes, list):
+                if sashes and len(self.paned["left"].panes()) >= 2:
+                    self.paned["left"].sash_place(0, int(sashes[0][0]), 0)
+                if len(sashes) > 1 and len(self.paned["bottom"].panes()) >= 2:
+                    self.paned["bottom"].sash_place(0, 0, int(sashes[1][1]))
+                return
+            main = (sashes or {}).get("main") or []
+            hsplit = self.paned["left"]
+            if main and len(hsplit.panes()) >= 2:
+                hsplit.sash_place(0, int(main[0][0]), 0)
+            center = self.paned["bottom"]
+            if len(main) > 1 and len(center.panes()) >= 2:
+                center.sash_place(0, 0, int(main[1][1]))
+            for area, coords in ((sashes or {}).get("areas") or {}).items():
+                container = self.containers.get(area)
+                if container is None:
+                    continue
+                for index, (_x, y) in enumerate(coords):
+                    if index < len(container.panes()) - 1:
+                        container.sash_place(index, 0, int(y))
         except Exception:  # noqa: BLE001 - 位置恢复失败不影响使用
             pass
 

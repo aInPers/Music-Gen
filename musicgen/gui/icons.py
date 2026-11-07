@@ -15,14 +15,14 @@ _IMAGE_CACHE: dict[tuple, tk.PhotoImage] = {}
 # ---------------------------------------------------------------- 位图（Treeview）
 
 
-def _paint(size: int, painter, background: str) -> tk.PhotoImage:
+def _paint(size: int, painter, background: str, master: tk.Misc) -> tk.PhotoImage:
     rows = []
     for y in range(size):
         row = []
         for x in range(size):
             row.append(painter(x, y) or background)
         rows.append("{" + " ".join(row) + "}")
-    image = tk.PhotoImage(width=size, height=size)
+    image = tk.PhotoImage(master=master, width=size, height=size)
     image.put("\n".join(rows))
     return image
 
@@ -75,9 +75,9 @@ def _wave(x: int, y: int) -> str | None:
     return None
 
 
-def image(kind: str, background: str, size: int = 16) -> tk.PhotoImage:
-    """取一张图标位图（按 kind+背景缓存，Treeview 需要 PhotoImage）。"""
-    key = (kind, background, size)
+def image(kind: str, background: str, master: tk.Misc, size: int = 16) -> tk.PhotoImage:
+    """取一张图标位图（按 解释器+kind+背景 缓存；master 必须传入，否则会挂到默认根窗口）。"""
+    key = (id(master.tk), kind, background, size)
     if key in _IMAGE_CACHE:
         return _IMAGE_CACHE[key]
     painter = {
@@ -87,7 +87,7 @@ def image(kind: str, background: str, size: int = 16) -> tk.PhotoImage:
         "file": _file,
         "wave": _wave,
     }.get(kind, _file)
-    img = _paint(size, painter, background)
+    img = _paint(size, painter, background, master)
     _IMAGE_CACHE[key] = img
     return img
 
