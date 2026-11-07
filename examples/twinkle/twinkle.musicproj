@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 小星星（Twinkle, Twinkle, Little Star）C 大调 · 96BPM · 4/4 · 共 16 小节
+     结构：第 1–2 小节 前奏 ｜ 第 3–14 小节 主题（六句）｜ 第 15–16 小节 尾声
+     主题旋律在 tracks/violin.track.xml，伴奏、低音、加花分别在另外三个文件里。 -->
+<musicproj name="小星星" bpm="96" sampleRate="44100" beatsPerBar="4"
+           length="auto" tail="2s" masterGain="-1dB" normalize="true">
+
+  <!-- 每个音轨一个文件；工程层可以覆盖 gain / pan / mute / solo / loop -->
+  <track file="tracks/violin.track.xml"/>
+  <track file="tracks/piano.track.xml"/>
+  <track file="tracks/cello.track.xml"/>
+  <track file="tracks/trumpet.track.xml"/>
+</musicproj>

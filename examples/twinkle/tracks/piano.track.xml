@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 钢琴伴奏：左手分解和弦，每小节「根音–五音–三音–五音」，一小节换一个和弦。
+     和声走向：C G | C C F C | G C G C | C C F C | C C
+     第 15 小节琶音上行、第 16 小节收成 C 大三和弦。 -->
+<track name="Piano" instrument="piano" gain="-7dB" pan="-0.15" reverb="0.26">
+
+  <!-- 第 1 小节：C（前奏） -->
+  <note time="0" dur="1" pitch="C3" vel="0.40"/>
+  <note time="1" dur="1" pitch="G3" vel="0.34"/>
+  <note time="2" dur="1" pitch="E4" vel="0.33"/>
+  <note time="3" dur="1" pitch="G3" vel="0.34"/>
+
+  <!-- 第 2 小节：G（属和弦，把旋律引进来） -->
+  <note time="4" dur="1" pitch="G2" vel="0.40"/>
+  <note time="5" dur="1" pitch="D3" vel="0.34"/>
+  <note time="6" dur="1" pitch="B3" vel="0.33"/>
+  <note time="7" dur="1" pitch="D3" vel="0.34"/>
+
+  <!-- 第 3 小节：C -->
+  <note time="8" dur="1" pitch="C3" vel="0.38"/>
+  <note time="9" dur="1" pitch="G3" vel="0.32"/>
+  <note time="10" dur="1" pitch="E4" vel="0.31"/>
+  <note time="11" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 4 小节：C -->
+  <note time="12" dur="1" pitch="C3" vel="0.38"/>
+  <note time="13" dur="1" pitch="G3" vel="0.32"/>
+  <note time="14" dur="1" pitch="E4" vel="0.31"/>
+  <note time="15" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 5 小节：F（下属） -->
+  <note time="16" dur="1" pitch="F2" vel="0.38"/>
+  <note time="17" dur="1" pitch="C3" vel="0.32"/>
+  <note time="18" dur="1" pitch="A3" vel="0.31"/>
+  <note time="19" dur="1" pitch="C3" vel="0.32"/>
+
+  <!-- 第 6 小节：C -->
+  <note time="20" dur="1" pitch="C3" vel="0.38"/>
+  <note time="21" dur="1" pitch="G3" vel="0.32"/>
+  <note time="22" dur="1" pitch="E4" vel="0.31"/>
+  <note time="23" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 7 小节：G（属） -->
+  <note time="24" dur="1" pitch="G2" vel="0.38"/>
+  <note time="25" dur="1" pitch="D3" vel="0.32"/>
+  <note time="26" dur="1" pitch="B3" vel="0.31"/>
+  <note time="27" dur="1" pitch="D3" vel="0.32"/>
+
+  <!-- 第 8 小节：C -->
+  <note time="28" dur="1" pitch="C3" vel="0.38"/>
+  <note time="29" dur="1" pitch="G3" vel="0.32"/>
+  <note time="30" dur="1" pitch="E4" vel="0.31"/>
+  <note time="31" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 9 小节：G（属） -->
+  <note time="32" dur="1" pitch="G2" vel="0.38"/>
+  <note time="33" dur="1" pitch="D3" vel="0.32"/>
+  <note time="34" dur="1" pitch="B3" vel="0.31"/>
+  <note time="35" dur="1" pitch="D3" vel="0.32"/>
+
+  <!-- 第 10 小节：C -->
+  <note time="36" dur="1" pitch="C3" vel="0.38"/>
+  <note time="37" dur="1" pitch="G3" vel="0.32"/>
+  <note time="38" dur="1" pitch="E4" vel="0.31"/>
+  <note time="39" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 11 小节：C -->
+  <note time="40" dur="1" pitch="C3" vel="0.38"/>
+  <note time="41" dur="1" pitch="G3" vel="0.32"/>
+  <note time="42" dur="1" pitch="E4" vel="0.31"/>
+  <note time="43" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 12 小节：C -->
+  <note time="44" dur="1" pitch="C3" vel="0.38"/>
+  <note time="45" dur="1" pitch="G3" vel="0.32"/>
+  <note time="46" dur="1" pitch="E4" vel="0.31"/>
+  <note time="47" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 13 小节：F（下属） -->
+  <note time="48" dur="1" pitch="F2" vel="0.38"/>
+  <note time="49" dur="1" pitch="C3" vel="0.32"/>
+  <note time="50" dur="1" pitch="A3" vel="0.31"/>
+  <note time="51" dur="1" pitch="C3" vel="0.32"/>
+
+  <!-- 第 14 小节：C，旋律停在主音上 -->
+  <note time="52" dur="1" pitch="C3" vel="0.38"/>
+  <note time="53" dur="1" pitch="G3" vel="0.32"/>
+  <note time="54" dur="1" pitch="E4" vel="0.31"/>
+  <note time="55" dur="1" pitch="G3" vel="0.32"/>
+
+  <!-- 第 15 小节：琶音上行，尾音时值拉长，让声音叠成一片 -->
+  <note time="56"   dur="2" pitch="C3" vel="0.40"/>
+  <note time="56.5" dur="2" pitch="G3" vel="0.38"/>
+  <note time="57"   dur="2" pitch="C4" vel="0.38"/>
+  <note time="57.5" dur="2" pitch="E4" vel="0.40"/>
+  <note time="58"   dur="2" pitch="G4" vel="0.40"/>
+  <note time="58.5" dur="2" pitch="C5" vel="0.42"/>
+  <note time="59"   dur="2" pitch="E5" vel="0.42"/>
+
+  <!-- 第 16 小节：C 大三和弦收尾 -->
+  <note time="60" dur="4" pitch="C3" vel="0.44"/>
+  <note time="60" dur="4" pitch="G3" vel="0.42"/>
+  <note time="60" dur="4" pitch="E4" vel="0.44"/>
+  <note time="60" dur="4" pitch="G4" vel="0.40"/>
+  <note time="60" dur="4" pitch="C5" vel="0.44"/>
+</track>

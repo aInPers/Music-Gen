@@ -1,6 +1,6 @@
 # MusicGen 命令行（CLI）手册
 
-> 适用于 MusicGen 1.5.0。`python -m musicgen --version` 可确认版本。
+> 与当前版本同步维护。`python -m musicgen --version` 可确认版本。
 > 工程格式、渲染管线与扩展方法见 [项目文档](项目文档.md)；本文只讲命令怎么用、参数什么含义、出错怎么办。
 
 **目录**：[调用方式](#1-三种调用方式) · [命令总览](#2-命令总览) · [退出码与环境变量](#3-退出码与环境变量) ·
@@ -47,7 +47,7 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | 选项 | 说明 |
 | --- | --- |
 | `-h`, `--help` | 显示帮助；子命令也一样：`python -m musicgen render -h` |
-| `-V`, `--version` | 打印 `MusicGen 1.5.0` |
+| `-V`, `--version` | 打印 `MusicGen 1.6.0` |
 
 ---
 

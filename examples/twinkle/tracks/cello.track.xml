@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 大提琴低音：每小节两个二分音符，根音 + 五音，给和声打个地基。
+     音域控制在 C2–C6 之内（C2 / G2 / D3 / F2 / C3），避免借采样变调。 -->
+<track name="Cello" instrument="cello" gain="-6dB" pan="0.0" reverb="0.22">
+
+  <!-- 第 1 小节 C ｜ 第 2 小节 G -->
+  <note time="0" dur="2" pitch="C2" vel="0.50"/>
+  <note time="2" dur="2" pitch="G2" vel="0.44"/>
+  <note time="4" dur="2" pitch="G2" vel="0.50"/>
+  <note time="6" dur="2" pitch="D3" vel="0.44"/>
+
+  <!-- 第 3–4 小节 C -->
+  <note time="8"  dur="2" pitch="C2" vel="0.48"/>
+  <note time="10" dur="2" pitch="G2" vel="0.42"/>
+  <note time="12" dur="2" pitch="C2" vel="0.48"/>
+  <note time="14" dur="2" pitch="G2" vel="0.42"/>
+
+  <!-- 第 5 小节 F ｜ 第 6 小节 C -->
+  <note time="16" dur="2" pitch="F2" vel="0.48"/>
+  <note time="18" dur="2" pitch="C3" vel="0.42"/>
+  <note time="20" dur="2" pitch="C2" vel="0.48"/>
+  <note time="22" dur="2" pitch="G2" vel="0.42"/>
+
+  <!-- 第 7 小节 G ｜ 第 8 小节 C -->
+  <note time="24" dur="2" pitch="G2" vel="0.48"/>
+  <note time="26" dur="2" pitch="D3" vel="0.42"/>
+  <note time="28" dur="2" pitch="C2" vel="0.48"/>
+  <note time="30" dur="2" pitch="G2" vel="0.42"/>
+
+  <!-- 第 9 小节 G ｜ 第 10 小节 C -->
+  <note time="32" dur="2" pitch="G2" vel="0.50"/>
+  <note time="34" dur="2" pitch="D3" vel="0.44"/>
+  <note time="36" dur="2" pitch="C2" vel="0.50"/>
+  <note time="38" dur="2" pitch="G2" vel="0.44"/>
+
+  <!-- 第 11–12 小节 C -->
+  <note time="40" dur="2" pitch="C2" vel="0.50"/>
+  <note time="42" dur="2" pitch="G2" vel="0.44"/>
+  <note time="44" dur="2" pitch="C2" vel="0.50"/>
+  <note time="46" dur="2" pitch="G2" vel="0.44"/>
+
+  <!-- 第 13 小节 F ｜ 第 14 小节 C -->
+  <note time="48" dur="2" pitch="F2" vel="0.50"/>
+  <note time="50" dur="2" pitch="C3" vel="0.44"/>
+  <note time="52" dur="2" pitch="C2" vel="0.50"/>
+  <note time="54" dur="2" pitch="G2" vel="0.44"/>
+
+  <!-- 第 15–16 小节：主音长音收尾（4 拍 ≈ 2.5s，在采样长度之内） -->
+  <note time="56" dur="4" pitch="C2" vel="0.52"/>
+  <note time="60" dur="4" pitch="C2" vel="0.48"/>
+</track>

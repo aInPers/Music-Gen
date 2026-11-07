@@ -26,6 +26,7 @@
 ```bat
 py -3 -m pip install -r requirements.txt   # numpy / soundfile / sounddevice
 py -3 -m musicgen samples fetch                     # 下载全部音源（四件乐器，约 6MB）
+py -3 -m musicgen render examples\twinkle\twinkle.musicproj -o twinkle.wav  # 《小星星》完整编曲
 py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen render examples\ensemble\ensemble.musicproj -o trio.wav   # 四重奏示例
 py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat

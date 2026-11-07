@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 主题旋律（小提琴）。起于第 3 小节 = 第 8 拍，六句，力度逐句增强。
+     简谱：1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 - |
+           5 5 4 4 | 3 3 2 - | 5 5 4 4 | 3 3 2 - |
+           1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 - -->
+<track name="Melody" instrument="violin" gain="-3dB" pan="0.15" reverb="0.34">
+
+  <!-- 第一句（第 3–4 小节）：1 1 5 5 | 6 6 5 - -->
+  <note time="8"  dur="1" pitch="C4" vel="0.60"/>
+  <note time="9"  dur="1" pitch="C4" vel="0.58"/>
+  <note time="10" dur="1" pitch="G4" vel="0.62"/>
+  <note time="11" dur="1" pitch="G4" vel="0.60"/>
+  <note time="12" dur="1" pitch="A4" vel="0.64"/>
+  <note time="13" dur="1" pitch="A4" vel="0.62"/>
+  <note time="14" dur="2" pitch="G4" vel="0.66"/>
+
+  <!-- 第二句（第 5–6 小节）：4 4 3 3 | 2 2 1 - -->
+  <note time="16" dur="1" pitch="F4" vel="0.66"/>
+  <note time="17" dur="1" pitch="F4" vel="0.64"/>
+  <note time="18" dur="1" pitch="E4" vel="0.68"/>
+  <note time="19" dur="1" pitch="E4" vel="0.66"/>
+  <note time="20" dur="1" pitch="D4" vel="0.70"/>
+  <note time="21" dur="1" pitch="D4" vel="0.68"/>
+  <note time="22" dur="2" pitch="C4" vel="0.72"/>
+
+  <!-- 第三句（第 7–8 小节）：5 5 4 4 | 3 3 2 - -->
+  <note time="24" dur="1" pitch="G4" vel="0.70"/>
+  <note time="25" dur="1" pitch="G4" vel="0.68"/>
+  <note time="26" dur="1" pitch="F4" vel="0.72"/>
+  <note time="27" dur="1" pitch="F4" vel="0.70"/>
+  <note time="28" dur="1" pitch="E4" vel="0.74"/>
+  <note time="29" dur="1" pitch="E4" vel="0.72"/>
+  <note time="30" dur="2" pitch="D4" vel="0.76"/>
+
+  <!-- 第四句（第 9–10 小节）：同第三句，再强一点 -->
+  <note time="32" dur="1" pitch="G4" vel="0.74"/>
+  <note time="33" dur="1" pitch="G4" vel="0.72"/>
+  <note time="34" dur="1" pitch="F4" vel="0.76"/>
+  <note time="35" dur="1" pitch="F4" vel="0.74"/>
+  <note time="36" dur="1" pitch="E4" vel="0.78"/>
+  <note time="37" dur="1" pitch="E4" vel="0.76"/>
+  <note time="38" dur="2" pitch="D4" vel="0.80"/>
+
+  <!-- 第五句（第 11–12 小节）：1 1 5 5 | 6 6 5 - -->
+  <note time="40" dur="1" pitch="C4" vel="0.78"/>
+  <note time="41" dur="1" pitch="C4" vel="0.76"/>
+  <note time="42" dur="1" pitch="G4" vel="0.80"/>
+  <note time="43" dur="1" pitch="G4" vel="0.78"/>
+  <note time="44" dur="1" pitch="A4" vel="0.82"/>
+  <note time="45" dur="1" pitch="A4" vel="0.80"/>
+  <note time="46" dur="2" pitch="G4" vel="0.78"/>
+
+  <!-- 第六句（第 13–14 小节）：4 4 3 3 | 2 2 1 -，最后一音稍轻，收得柔 -->
+  <note time="48" dur="1" pitch="F4" vel="0.78"/>
+  <note time="49" dur="1" pitch="F4" vel="0.76"/>
+  <note time="50" dur="1" pitch="E4" vel="0.80"/>
+  <note time="51" dur="1" pitch="E4" vel="0.78"/>
+  <note time="52" dur="1" pitch="D4" vel="0.82"/>
+  <note time="53" dur="1" pitch="D4" vel="0.80"/>
+  <note time="54" dur="2.5" pitch="C4" vel="0.70"/>
+</track>
