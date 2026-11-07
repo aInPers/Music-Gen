@@ -106,6 +106,9 @@ class ToolButton(tk.Canvas):
         self._icon = icon
         self._render()
 
+    def set_command(self, command: Callable[[], None]) -> None:
+        self._command = command
+
     def configure_state(self, enabled: bool) -> None:
         self.set_enabled(enabled)
 
@@ -162,6 +165,16 @@ class PanelHeader(tk.Frame):
     def add_action(self, icon: str, command: Callable[[], None], tooltip: str = "") -> ToolButton:
         button = ToolButton(self._actions, icon=icon, command=command, tooltip=tooltip,
                             width=24, height=22)
+        button.pack(side="right", padx=1, pady=1)
+        return button
+
+    def add_menu_button(self, menu: tk.Menu, tooltip: str = "") -> "ToolButton":
+        """右侧加一个按钮，点击弹出菜单（用于停靠/关闭）。"""
+        button = ToolButton(self._actions, icon="dock", tooltip=tooltip, width=24, height=22)
+        button.set_command(
+            lambda: menu.tk_popup(button.winfo_rootx(),
+                                  button.winfo_rooty() + button.winfo_height())
+        )
         button.pack(side="right", padx=1, pady=1)
         return button
 

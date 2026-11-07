@@ -20,16 +20,14 @@ class ToolBar(tk.Frame):
 
         self.btn_open = self._button(left, "open", "打开工程  Ctrl+O", handlers.get("open"))
         self._sep(left)
-        self.btn_render = self._button(left, "play", "渲染工程  Ctrl+R", handlers.get("render"),
+        self.btn_render = self._button(left, "bolt", "渲染工程  Ctrl+R", handlers.get("render"),
                                        accent=True)
-        self.btn_play = self._button(left, "wave", "播放  Space", handlers.get("play"))
         self.btn_export = self._button(left, "save", "导出 WAV  Ctrl+S", handlers.get("export"))
         self._sep(left)
         self.btn_samples = self._button(left, "download", "下载 / 更新音源", handlers.get("samples"))
         self.btn_refresh = self._button(left, "refresh", "重新载入工程  F5", handlers.get("refresh"))
 
         self.btn_render.set_enabled(False)
-        self.btn_play.set_enabled(False)
         self.btn_export.set_enabled(False)
 
         self.info = tk.Label(self, text="", bg=T["chrome"], fg=T["text_faint"],

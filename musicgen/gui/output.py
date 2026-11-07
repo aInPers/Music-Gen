@@ -15,7 +15,6 @@ class OutputPanel(tk.Frame):
         super().__init__(master, bg=T["panel"])
         self.header = widgets.PanelHeader(self, "输出")
         self.header.pack(fill="x")
-        self.header.add_action("close", on_clear or self.clear, "清空输出")
 
         self.log_view = widgets.LogView(self)
         self.log_view.pack(fill="both", expand=True)

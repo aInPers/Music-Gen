@@ -28,6 +28,7 @@ class PianoRollPage(tk.Frame):
         self.selected = -1
         self.zoom = 1.0
         self.scroll_beats = 0.0
+        self.playhead: float | None = None
         self._pending: str | None = None
 
         self.canvas = tk.Canvas(self, bg=T["editor"], highlightthickness=0, bd=0)
@@ -50,6 +51,26 @@ class PianoRollPage(tk.Frame):
     def set_selected(self, index: int) -> None:
         self.selected = index
         self.schedule_redraw()
+
+    def set_playhead(self, seconds: float | None) -> None:
+        """更新播放头（秒）。只重画那一条线，不整体重绘。"""
+        self.playhead = seconds
+        self._draw_playhead()
+
+    def _draw_playhead(self) -> None:
+        c = self.canvas
+        c.delete("playhead")
+        if self.playhead is None or self.project is None:
+            return
+        ppb = self._pixels_per_beat()
+        beat = self.playhead * self.project.bpm / 60.0
+        x = self.KEY_W - self.scroll_beats * ppb + beat * ppb
+        width, height = c.winfo_width(), c.winfo_height()
+        if not (self.KEY_W - 1 <= x <= width):
+            return
+        c.create_line(x, self.RULER_H, x, height, fill="#FFFFFF", width=1, tags="playhead")
+        c.create_polygon(x - 4, self.RULER_H, x + 4, self.RULER_H, x, self.RULER_H + 7,
+                         fill="#FFFFFF", outline="", tags="playhead")
 
     def reset_view(self) -> None:
         self.zoom = 1.0
@@ -260,6 +281,8 @@ class PianoRollPage(tk.Frame):
                               fill=T["text_dim"], font=theme.font(8))
                 c.create_line(x, top - 5, x, top, fill=T["border"])
         c.create_line(0, top, width, top, fill=T["border"])
+
+        self._draw_playhead()
 
         if self.zoom > 1.0:
             c.create_text(width - 8, height - 10, anchor="se",

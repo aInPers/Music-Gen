@@ -565,12 +565,29 @@ def clear_track_overrides(project_path: Path, track_path: Path | None) -> bool:
 
 
 TEMPLATE_PROJECT = """<?xml version="1.0" encoding="UTF-8"?>
-<musicproj name="{name}" bpm="100" sampleRate="44100" length="auto"
-           masterGain="-1dB" normalize="true">
+<musicproj name="{name}" bpm="{bpm}" sampleRate="{sample_rate}" beatsPerBar="{beats_per_bar}"
+           length="auto" masterGain="-1dB" normalize="true">
   <!-- 每条音轨对应 tracks/ 下的一个文件 -->
   <track file="tracks/lead.track.xml"/>
   <track file="tracks/pad.track.xml" gain="-3dB" pan="0.15"/>
 </musicproj>
+"""
+
+TEMPLATE_EMPTY_PROJECT = """<?xml version="1.0" encoding="UTF-8"?>
+<musicproj name="{name}" bpm="{bpm}" sampleRate="{sample_rate}" beatsPerBar="{beats_per_bar}"
+           length="auto" masterGain="-1dB" normalize="true">
+  <track file="tracks/track1.track.xml"/>
+</musicproj>
+"""
+
+TEMPLATE_EMPTY_TRACK = """<?xml version="1.0" encoding="UTF-8"?>
+<track name="Track 1" instrument="piano" gain="0dB" pan="0" reverb="0.2">
+  <!-- 在这里写音符：time 起点、dur 时值（单位都是“拍”），pitch 用音名，
+       多个音名用逗号分隔就是和弦，vel 是 0-1 的力度。例如：
+  <note time="0" dur="1" pitch="C4,E4,G4" vel="0.7"/>
+  <note time="1" dur="1" pitch="D4" vel="0.6"/>
+  -->
+</track>
 """
 
 TEMPLATE_LEAD = """<?xml version="1.0" encoding="UTF-8"?>
@@ -600,8 +617,28 @@ TEMPLATE_PAD = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 
-def create_project(directory: Path, name: str | None = None, force: bool = False) -> Path:
-    """在 *directory* 下生成一个可直接渲染的示例工程，返回工程文件路径。"""
+def create_project(
+    directory: Path,
+    name: str | None = None,
+    force: bool = False,
+    bpm: float = 100.0,
+    sample_rate: int = 44100,
+    beats_per_bar: int = 4,
+    template: str = "demo",
+) -> Path:
+    """在 *directory* 下生成一个可直接渲染的工程，返回工程文件路径。
+
+    ``template``：``demo``＝两轨示例（旋律 + 循环音型），``empty``＝单条空音轨。
+    """
+    if template not in ("demo", "empty"):
+        raise ValueError(f"未知模板：{template}")
+    if not 5 <= float(bpm) <= 600:
+        raise ValueError(f"速度超出范围 5-600：{bpm}")
+    if int(sample_rate) not in VALID_SAMPLE_RATES:
+        raise ValueError(f"不支持的采样率：{sample_rate}")
+    if int(beats_per_bar) not in (2, 3, 4, 6):
+        raise ValueError(f"不支持的拍号：{beats_per_bar}/4")
+
     target = Path(directory)
     project_name = name or target.name or "新工程"
     slug = target.name or "demo"
@@ -609,7 +646,18 @@ def create_project(directory: Path, name: str | None = None, force: bool = False
     if project_file.exists() and not force:
         raise FileExistsError(f"目标已存在：{project_file}")
     (target / "tracks").mkdir(parents=True, exist_ok=True)
-    project_file.write_text(TEMPLATE_PROJECT.format(name=project_name), encoding="utf-8")
-    (target / "tracks" / "lead.track.xml").write_text(TEMPLATE_LEAD, encoding="utf-8")
-    (target / "tracks" / "pad.track.xml").write_text(TEMPLATE_PAD, encoding="utf-8")
+
+    fmt = {
+        "name": project_name,
+        "bpm": f"{float(bpm):g}",
+        "sample_rate": int(sample_rate),
+        "beats_per_bar": int(beats_per_bar),
+    }
+    if template == "empty":
+        project_file.write_text(TEMPLATE_EMPTY_PROJECT.format(**fmt), encoding="utf-8")
+        (target / "tracks" / "track1.track.xml").write_text(TEMPLATE_EMPTY_TRACK, encoding="utf-8")
+    else:
+        project_file.write_text(TEMPLATE_PROJECT.format(**fmt), encoding="utf-8")
+        (target / "tracks" / "lead.track.xml").write_text(TEMPLATE_LEAD, encoding="utf-8")
+        (target / "tracks" / "pad.track.xml").write_text(TEMPLATE_PAD, encoding="utf-8")
     return project_file

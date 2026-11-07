@@ -169,7 +169,11 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 def cmd_init(args: argparse.Namespace) -> int:
     try:
-        project_file = create_project(Path(args.path), args.name, force=args.force)
+        project_file = create_project(
+            Path(args.path), args.name, force=args.force, bpm=args.bpm,
+            sample_rate=args.sample_rate, beats_per_bar=args.beats_per_bar,
+            template=args.template,
+        )
     except FileExistsError as exc:
         print(f"{exc}（加 --force 可覆盖）", file=sys.stderr)
         return 1
@@ -281,6 +285,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("path", help="工程目录")
     p_init.add_argument("--name", default=None, help="工程名（默认用目录名）")
     p_init.add_argument("--force", action="store_true", help="覆盖已存在的同名工程")
+    p_init.add_argument("--bpm", type=float, default=100.0, help="速度（默认 100）")
+    p_init.add_argument("--sample-rate", type=int, default=44100, help="采样率（默认 44100）")
+    p_init.add_argument("--beats-per-bar", type=int, default=4, choices=(2, 3, 4, 6),
+                        help="每小节拍数（默认 4）")
+    p_init.add_argument("--template", default="demo", choices=("demo", "empty"),
+                        help="模板：demo=两轨示例，empty=单条空音轨")
     p_init.set_defaults(func=cmd_init)
 
     p_samples = sub.add_parser("samples", help="音源管理与下载")

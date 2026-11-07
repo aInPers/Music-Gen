@@ -1,7 +1,8 @@
-"""主窗口：把菜单、工具栏、三栏工作区、文档标签页、状态栏装配起来。
+"""主窗口：装配菜单/工具栏/传输条/三栏工作区/状态栏，并负责业务调度。
 
 界面本身由各 view 模块负责（pianoroll / waveform / info / properties /
-tracklist / output / statusbar / toolbar / menubar），这里只做布局与业务调度。
+tracklist / output / statusbar / toolbar / transport / menubar），
+面板的显示位置由 :mod:`docking` 管理，这里只做布局、事件与数据流。
 """
 
 from __future__ import annotations
@@ -19,21 +20,24 @@ from tkinter import filedialog, messagebox
 from ..core.project import (
     ProjectError,
     clear_track_overrides,
-    create_project,
     load_project,
     save_track,
 )
 from ..core.render import RenderResult, render_project
 from ..core.wavio import write_wav
 from ..samples import fetch
-from . import menubar, theme, widgets
+from . import layout, menubar, theme, widgets
+from .docking import DockManager
 from .info import ProjectInfoPage
+from .newproject import NewProjectDialog
 from .output import OutputPanel
 from .pianoroll import PianoRollPage
+from .player import AudioPlayer, PlaybackUnavailable
 from .properties import PropertiesPanel
 from .statusbar import StatusBar
 from .toolbar import ToolBar
 from .tracklist import SolutionExplorer
+from .transport import TransportBar
 from .waveform import WaveformPage
 
 T = theme.PALETTE
@@ -43,6 +47,8 @@ PAGES = [
     ("wave", "波形", "wave"),
     ("info", "工程信息", "info"),
 ]
+
+SASH = 6
 
 
 def _fmt_time(seconds: float) -> str:
@@ -57,13 +63,8 @@ class MusicGenApp(tk.Tk):
         self.configure(bg=T["panel"])
         theme.apply_theme(self)
 
-        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
-        win_w = max(1080, min(1440, screen_w - 60))
-        win_h = max(660, min(880, screen_h - 120))
-        self.geometry(
-            f"{win_w}x{win_h}+{(screen_w - win_w) // 2}+{max(16, (screen_h - win_h) // 2 - 24)}"
-        )
-        self.minsize(1040, 640)
+        self._ui = layout.load_layout()
+        self._apply_window_geometry()
 
         self.project = None
         self.selected = -1
@@ -72,17 +73,42 @@ class MusicGenApp(tk.Tk):
         self.page = "roll"
         self._queue: queue.Queue = queue.Queue()
         self._busy = False
-        self._output_visible = True
+        self._log_lines: list[tuple[str, str]] = []
+        self._play_timer: str | None = None
+        self._save_timer: str | None = None
+        self.player = AudioPlayer()
+        self.player.volume = float(self._ui.get("volume", 0.9) or 0.9)
 
         self._build()
-        theme.enable_dark_titlebar(self)
         self._bind_keys()
-
+        theme.enable_dark_titlebar(self)
         self.protocol("WM_DELETE_WINDOW", self.on_quit)
+
+        self.goto_page(self._ui.get("page") if self._ui.get("page") in
+                       [key for key, _, _ in PAGES] else "roll")
         self.after(90, self._poll_queue)
-        self._refresh_sample_items()
+        self.after(200, self._restore_sashes)
         if project_path:
-            self.after(80, lambda: self.open_project(project_path))
+            self.after(60, lambda: self.open_project(project_path))
+        self.log("MusicGen 已启动。打开或新建一个工程，按 Ctrl+R 渲染，空格预览。")
+
+    # ---------------------------------------------------------------- 窗口
+    def _apply_window_geometry(self) -> None:
+        geometry = self._ui.get("geometry")
+        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
+        if isinstance(geometry, str) and "x" in geometry:
+            self.geometry(geometry)
+        else:
+            win_w = max(1080, min(1440, screen_w - 60))
+            win_h = max(660, min(880, screen_h - 120))
+            self.geometry(
+                f"{win_w}x{win_h}+{(screen_w - win_w) // 2}+{max(16, (screen_h - win_h) // 2 - 24)}"
+            )
+        self.minsize(1040, 640)
+
+    def _restore_sashes(self) -> None:
+        self.update_idletasks()
+        self.dock_manager.apply_measured_sizes(self._ui.get("sash"))
 
     # ---------------------------------------------------------------- 布局
     def _build(self) -> None:
@@ -99,35 +125,44 @@ class MusicGenApp(tk.Tk):
             "refresh": self.on_refresh,
         })
         self.toolbar.pack(side="top", fill="x")
+        widgets.Separator(self, color=T["border_soft"]).pack(side="top", fill="x")
+
+        self.transport = TransportBar(
+            self, on_toggle=self.on_play, on_stop=self.on_stop_playback,
+            on_seek=self.on_seek, on_volume=self.on_volume,
+        )
+        self.transport.volume.set(self.player.volume)
+        self.transport.pack(side="top", fill="x")
         widgets.Separator(self).pack(side="top", fill="x")
 
         self.status = StatusBar(self)
         self.status.pack(side="bottom", fill="x")
 
-        self.vsplit = tk.PanedWindow(self, orient="vertical", bg=T["border"], bd=0,
-                                     sashwidth=4, sashrelief="flat", showhandle=False)
-        self.vsplit.pack(fill="both", expand=True)
+        # 主体：左停靠区 | 编辑区（上下分栏） | 右停靠区
+        self.hsplit = tk.PanedWindow(self, orient="horizontal", bg=T["border"], bd=0,
+                                     sashwidth=SASH, sashrelief="flat", showhandle=False)
+        self.hsplit.pack(fill="both", expand=True)
 
-        self.hsplit = tk.PanedWindow(self.vsplit, orient="horizontal", bg=T["border"], bd=0,
-                                     sashwidth=4, sashrelief="flat", showhandle=False)
-        self.vsplit.add(self.hsplit, minsize=240, stretch="always")
+        self.left_area = tk.Frame(self.hsplit, bg=T["panel"])
+        self.center_host = tk.PanedWindow(self.hsplit, orient="vertical", bg=T["border"], bd=0,
+                                          sashwidth=SASH, sashrelief="flat", showhandle=False)
+        self.right_area = tk.Frame(self.hsplit, bg=T["panel"])
+        self.hsplit.add(self.center_host, minsize=360, stretch="always")
 
-        # 左：解决方案资源管理器
-        self.explorer = SolutionExplorer(
-            self.hsplit, on_select=self.select_track, on_toggle=self._toggle,
-            on_apply=self.on_apply,
-        )
-        self.hsplit.add(self.explorer, minsize=190, width=282, stretch="never")
+        self.editor = tk.Frame(self.center_host, bg=T["editor"])
+        self.center_host.add(self.editor, minsize=180, stretch="always")
+        self.bottom_area = tk.Frame(self.center_host, bg=T["panel"])
 
-        # 中：文档区（标签页 + 页面）
-        editor = tk.Frame(self.hsplit, bg=T["editor"])
-        self.hsplit.add(editor, minsize=360, stretch="always")
+        self._build_editor()
+        self._build_docks()
+        self._refresh_status_items()
 
-        self.tabs = widgets.TabStrip(editor, on_select=self.goto_page)
+    def _build_editor(self) -> None:
+        self.tabs = widgets.TabStrip(self.editor, on_select=self.goto_page)
         self.tabs.pack(fill="x")
-        widgets.Separator(editor, color=T["border_soft"]).pack(fill="x")
+        widgets.Separator(self.editor, color=T["border_soft"]).pack(fill="x")
 
-        self.page_host = tk.Frame(editor, bg=T["editor"])
+        self.page_host = tk.Frame(self.editor, bg=T["editor"])
         self.page_host.pack(fill="both", expand=True)
 
         self.roll = PianoRollPage(self.page_host, on_pick_track=self.select_track)
@@ -137,28 +172,61 @@ class MusicGenApp(tk.Tk):
         self.tabs.set_tabs(PAGES, self.page)
         self.roll.pack(fill="both", expand=True)
 
-        # 右：属性
-        self.props = PropertiesPanel(self.hsplit, on_apply=self.on_apply)
-        self.hsplit.add(self.props, minsize=220, width=268, stretch="never")
+    def _build_docks(self) -> None:
+        self.dock_manager = DockManager(
+            containers={"left": self.left_area, "right": self.right_area,
+                        "bottom": self.bottom_area},
+            paned={"left": self.hsplit, "right": self.hsplit, "bottom": self.center_host},
+            factories={
+                "explorer": lambda parent: SolutionExplorer(
+                    parent, on_select=self.select_track, on_toggle=self._toggle,
+                    on_apply=self.on_apply,
+                ),
+                "properties": lambda parent: PropertiesPanel(parent, on_apply=self.on_apply),
+                "output": lambda parent: OutputPanel(parent),
+            },
+            titles={"explorer": "解决方案资源管理器", "properties": "属性", "output": "输出"},
+            defaults={"explorer": "left", "properties": "right", "output": "bottom"},
+            on_created=self._on_panel_created,
+            center=self.center_host,
+            on_layout_changed=self._schedule_save_layout,
+        )
+        self.dock_manager.apply_state(self._ui.get("docks"), self._ui.get("sizes"))
+        self._sync_view_menu()
 
-        # 下：输出
-        self.output = OutputPanel(self.vsplit, on_clear=self.clear_output)
-        self.vsplit.add(self.output, minsize=80, height=150, stretch="never")
+    def _on_panel_created(self, key: str, widget: tk.Widget) -> None:
+        if key == "explorer":
+            self.explorer = widget
+            if self.project is not None:
+                widget.load(self.project, self._sample_line())
+                widget.select_track(self.selected)
+            else:
+                widget.load_empty()
+        elif key == "properties":
+            self.props = widget
+            track = self._current_track()
+            widget.set_track(track, "" if track is None else self._instrument_note(track))
+        elif key == "output":
+            self.output = widget
+            for message, level in self._log_lines[-200:]:
+                widget.log(message, level)
 
-        self.output.log("MusicGen 已启动。打开一个 .musicproj 工程，按 Ctrl+R 渲染。")
-
+    # ---------------------------------------------------------------- 快捷键
     def _bind_keys(self) -> None:
         self.bind("<Control-o>", lambda _e: self.on_open())
         self.bind("<Control-n>", lambda _e: self.on_new_project())
         self.bind("<Control-r>", lambda _e: self.on_render())
         self.bind("<Control-s>", lambda _e: self.on_export())
         self.bind("<Control-Return>", lambda _e: self.on_apply())
-        self.bind("<Control-l>", lambda _e: self.toggle_output())
+        self.bind("<Control-l>", lambda _e: self.toggle_panel("output"))
         self.bind("<Control-Key-1>", lambda _e: self.goto_page("roll"))
         self.bind("<Control-Key-2>", lambda _e: self.goto_page("wave"))
         self.bind("<Control-Key-3>", lambda _e: self.goto_page("info"))
+        self.bind("<F4>", lambda _e: self.toggle_panel("properties"))
+        self.bind("<Control-Shift-KeyPress-E>", lambda _e: self.toggle_panel("explorer"))
         self.bind("<F5>", lambda _e: self.on_refresh())
         self.bind("<space>", lambda _e: self.on_play())
+        self.bind("<Escape>", lambda _e: self.on_stop_playback())
         self.bind("m", lambda _e: self.on_toggle_selected("mute"))
         self.bind("s", lambda _e: self.on_toggle_selected("solo"))
 
@@ -168,8 +236,7 @@ class MusicGenApp(tk.Tk):
             return
         for page in self.pages.values():
             page.pack_forget()
-        target = self.pages[key]
-        target.pack(fill="both", expand=True)
+        self.pages[key].pack(fill="both", expand=True)
         self.page = key
         self.tabs.set_active(key)
         if key == "roll":
@@ -181,17 +248,38 @@ class MusicGenApp(tk.Tk):
         self.goto_page("roll")
         self.roll.reset_view()
 
-    def toggle_output(self) -> None:
-        if self._output_visible:
-            self.vsplit.forget(self.output)
-        else:
-            self.vsplit.add(self.output, minsize=80, height=150, stretch="never")
-        self._output_visible = not self._output_visible
+    def toggle_panel(self, key: str) -> None:
+        self.dock_manager.toggle(key)
+        self._sync_view_menu()
 
-    def clear_output(self) -> None:
-        self.output.clear()
+    def dock_panel(self, key: str, area: str) -> None:
+        self.dock_manager.dock(key, area)
+        self._sync_view_menu()
+
+    def reset_layout(self) -> None:
+        self.dock_manager.reset()
+        self._sync_view_menu()
+        self.log("布局已重置")
+
+    def _sync_view_menu(self) -> None:
+        for key, var in getattr(self, "_view_vars", {}).items():
+            var.set(self.dock_manager.visible(key))
 
     # ---------------------------------------------------------------- 消息
+    def log(self, message: str, level: str = "info") -> None:
+        self._log_lines.append((message, level))
+        if len(self._log_lines) > 400:
+            del self._log_lines[:100]
+        panel = self.dock_manager.panel("output") if self.dock_manager else None
+        if panel is not None:
+            panel.log(message, level)
+
+    def clear_output(self) -> None:
+        self._log_lines.clear()
+        panel = self.dock_manager.panel("output") if self.dock_manager else None
+        if panel is not None:
+            panel.clear()
+
     def _poll_queue(self) -> None:
         try:
             while True:
@@ -217,11 +305,16 @@ class MusicGenApp(tk.Tk):
             self.status.set_progress(0.0)
             self.status.set_message(message or "处理中…")
         else:
-            self.toolbar.btn_export.set_enabled(self.result is not None)
-            self.toolbar.btn_play.set_enabled(self.result is not None)
+            has_result = self.result is not None
+            self.toolbar.btn_export.set_enabled(has_result)
+            self.transport.set_enabled(has_result)
             self.status.set_progress(None)
 
-    def _status_items(self) -> list[str]:
+    def _sample_line(self) -> str:
+        have, want = fetch.instrument_status("piano")
+        return f"piano — {have}/{want} 采样"
+
+    def _refresh_status_items(self) -> None:
         items = []
         have, want = fetch.instrument_status("piano")
         items.append(f"钢琴音源 {have}/{want}" if want else "钢琴音源 —")
@@ -230,18 +323,26 @@ class MusicGenApp(tk.Tk):
             items.append(f"{self.project.bpm:g} BPM")
             items.append(f"{len(self.project.tracks)} 音轨")
             items.append(f"时长 {_fmt_time(self.project.compute_length_seconds())}")
-        return items
-
-    def _refresh_sample_items(self) -> None:
-        self.status.set_items(self._status_items())
-
-    def _sample_line(self) -> str:
-        have, want = fetch.instrument_status("piano")
-        return f"piano — {have}/{want} 采样"
+        self.status.set_items(items)
 
     # ---------------------------------------------------------------- 工程
     def on_open(self) -> None:
         self.open_project(None)
+
+    def on_new_project(self) -> None:
+        if self._busy:
+            return
+        dialog = NewProjectDialog(self, default_dir=Path.cwd())
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        info = dialog.result
+        self.log(
+            f"新建工程 {info['name']}（{info['bpm']:g}BPM · {info['sample_rate']}Hz · "
+            f"{info['beats_per_bar']}/4 · 模板 {info['template']}）",
+            "ok",
+        )
+        self.open_project(str(info["path"]))
 
     def open_project(self, path: str | None = None) -> None:
         if self._busy:
@@ -259,12 +360,16 @@ class MusicGenApp(tk.Tk):
             project = load_project(path)
         except ProjectError as exc:
             messagebox.showerror("工程有错误", "\n".join(str(i) for i in exc.issues[:12]))
-            self.output.log("载入失败：" + str(exc.issues[0]), "error")
+            self.log("载入失败：" + str(exc.issues[0]), "error")
             return
 
+        self._stop_playback(reset=True)
         self.project = project
         self.selected = 0 if project.tracks else -1
         self.result = None
+        self.player.unload()
+        self.transport.set_enabled(False)
+        self.transport.update_time(0.0, 0.0)
         self.wave.clear()
         self.status.set_progress(None)
         self.title(f"{project.path.name} — MusicGen")
@@ -273,65 +378,66 @@ class MusicGenApp(tk.Tk):
             f"{_fmt_time(project.compute_length_seconds())}"
         )
         self.toolbar.btn_render.set_enabled(True)
-        self.toolbar.btn_play.set_enabled(False)
         self.toolbar.btn_export.set_enabled(False)
 
-        self.explorer.load(project, self._sample_line())
         self.roll.set_project(project, self.selected)
         self.info.set_project(project)
+        self._refresh_explorer()
         self._select_ui(self.selected)
-        self._refresh_sample_items()
+        self._refresh_status_items()
         self.status.set_message(f"已打开 {project.path.name}")
 
-        self.output.log(f"载入工程 {project.path}", "ok")
-        self.output.log(
+        self.log(f"载入工程 {project.path}", "ok")
+        self.log(
             f"BPM {project.bpm:g} · {project.sample_rate}Hz · {len(project.tracks)} 条音轨 · "
             f"时长 {project.compute_length_seconds():.2f}s"
         )
         for warning in project.warnings:
-            self.output.log(str(warning), "warn")
+            self.log(str(warning), "warn")
 
     def on_refresh(self) -> None:
         if self.project is not None:
             self.open_project(str(self.project.path))
 
-    def on_new_project(self) -> None:
-        if self._busy:
-            return
-        directory = filedialog.askdirectory(title="选择新工程目录")
-        if not directory:
-            return
-        try:
-            path = create_project(Path(directory))
-        except FileExistsError as exc:
-            messagebox.showwarning("无法新建", f"{exc}\n请换一个空目录，或先删除旧工程。")
-            return
-        except OSError as exc:
-            messagebox.showerror("无法新建", str(exc))
-            return
-        self.output.log(f"已创建示例工程 {path}", "ok")
-        self.open_project(str(path))
-
-    def on_quit(self) -> None:
-        self.destroy()
-
     # ---------------------------------------------------------------- 音轨
+    def _current_track(self):
+        if self.project is None or not (0 <= self.selected < len(self.project.tracks)):
+            return None
+        return self.project.tracks[self.selected]
+
+    def _instrument_note(self, track) -> str:
+        if track.instrument in fetch.SOURCES:
+            have, want = fetch.instrument_status(track.instrument)
+            if have < want:
+                return "（采样不全）"
+        return ""
+
     def select_track(self, index: int) -> None:
         if self.project is None or not (0 <= index < len(self.project.tracks)):
             return
         self.selected = index
-        self.explorer.select_track(index)
+        explorer = self.dock_manager.panel("explorer")
+        if explorer is not None:
+            explorer.select_track(index)
         self._select_ui(index)
 
     def _select_ui(self, index: int) -> None:
         self.roll.set_selected(index)
         self.roll.schedule_redraw()
-        track = self.project.tracks[index] if index >= 0 and self.project else None
-        note = ""
-        if track is not None and track.instrument in fetch.SOURCES:
-            have, want = fetch.instrument_status(track.instrument)
-            note = "" if have >= want else "（采样不全）"
-        self.props.set_track(track, note)
+        props = self.dock_manager.panel("properties")
+        if props is not None:
+            track = self._current_track()
+            props.set_track(track, "" if track is None else self._instrument_note(track))
+
+    def _refresh_explorer(self) -> None:
+        explorer = self.dock_manager.panel("explorer")
+        if explorer is None:
+            return
+        if self.project is None:
+            explorer.load_empty()
+        else:
+            explorer.load(self.project, self._sample_line())
+            explorer.select_track(self.selected)
 
     def on_toggle_selected(self, attr: str) -> None:
         if self.selected >= 0:
@@ -343,18 +449,20 @@ class MusicGenApp(tk.Tk):
         track = self.project.tracks[index]
         setattr(track, attr, not getattr(track, attr))
         state = "开" if getattr(track, attr) else "关"
-        self.output.log(f"{track.name}：{'静音' if attr == 'mute' else '独奏'}{state}")
+        self.log(f"{track.name}：{'静音' if attr == 'mute' else '独奏'}{state}")
         self.selected = index
-        self.explorer.load(self.project, self._sample_line())
-        self.explorer.select_track(index)
-        self.props.sync_flags()
+        self._refresh_explorer()
+        props = self.dock_manager.panel("properties")
+        if props is not None:
+            props.sync_flags()
         self.roll.schedule_redraw()
 
     def on_apply(self) -> None:
-        if self.project is None or self.selected < 0:
+        track = self._current_track()
+        props = self.dock_manager.panel("properties")
+        if track is None or props is None:
             return
-        track = self.project.tracks[self.selected]
-        values = self.props.values()
+        values = props.values()
         track.gain_db = float(values["gain_db"])
         track.pan = float(values["pan"])
         track.reverb = float(values["reverb"])
@@ -373,12 +481,11 @@ class MusicGenApp(tk.Tk):
             messagebox.showerror("保存失败", str(exc))
             return
         changed = clear_track_overrides(self.project.path, track.path)
-        self.explorer.load(self.project, self._sample_line())
-        self.explorer.select_track(self.selected)
+        self._refresh_explorer()
         self.roll.schedule_redraw()
         self.info.set_project(self.project)
         self.status.set_message(f"已保存 {path.name}")
-        self.output.log(
+        self.log(
             f"保存音轨 {path.name}（音量 {track.gain_db:+.1f}dB / 声像 {track.pan:+.2f} / "
             f"混响 {track.reverb:.2f}{' / 循环' if track.loop else ''}）"
             + ("，并清除了工程层覆盖" if changed else ""),
@@ -389,8 +496,9 @@ class MusicGenApp(tk.Tk):
     def on_render(self) -> None:
         if self.project is None or self._busy:
             return
+        self._stop_playback(reset=True)
         self._set_busy(True, "正在渲染…")
-        self.output.log(f"开始渲染 {self.project.name}")
+        self.log(f"开始渲染 {self.project.name}")
         project = self.project
 
         def worker() -> None:
@@ -416,37 +524,125 @@ class MusicGenApp(tk.Tk):
             f"{elapsed:.1f}s（{reel:.1f}× 实时）"
         )
         self.wave.set_result(result.audio, result.sample_rate, summary)
+        self.player.load(result.audio, result.sample_rate)
         self._set_busy(False)
+        self.transport.set_enabled(True)
+        self.transport.update_time(0.0, self.player.duration)
         self.status.set_progress(1.0)
         self.status.set_message(f"渲染完成 · {result.duration:.1f}s")
         self.after(1500, lambda: self.status.set_progress(None))
-        self.output.log(f"渲染完成：{summary}", "ok")
+        self.log(f"渲染完成：{summary}", "ok")
         for warning in result.warnings:
-            self.output.log(warning, "warn")
+            self.log(warning, "warn")
         self.goto_page("wave")
 
     def _on_error(self, message: str) -> None:
         self._set_busy(False)
         self.status.set_message("出错")
-        self.output.log(message, "error")
+        self.log(message, "error")
         messagebox.showerror("出错了", message)
 
+    # ---------------------------------------------------------------- 预览
     def on_play(self) -> None:
         if self.result is None:
-            self.output.log("还没有可播放的结果，先渲染一次。", "warn")
+            self.log("还没有可播放的结果，先按 Ctrl+R 渲染一次。", "warn")
+            return
+        if not self.player.has_audio:
+            self.player.load(self.result.audio, self.result.sample_rate)
+            self.transport.update_time(0.0, self.player.duration)
+        if self.player.playing:
+            self._pause_playback()
+            return
+        if self.player.position >= self.player.duration - 0.02:
+            self.player.seek(0.0)
+        try:
+            self.player.play()
+        except PlaybackUnavailable as exc:
+            self.log(f"内置预览不可用（{exc}），改用系统播放器。", "warn")
+            self._open_in_system_player()
+            return
+        self.transport.set_playing(True)
+        self.status.set_message("预览中…")
+        self._start_tick()
+
+    def _pause_playback(self) -> None:
+        self.player.pause()
+        self.transport.set_playing(False)
+        self._stop_tick()
+        self.status.set_message(
+            f"已暂停 · {_fmt_time(self.player.position)} / {_fmt_time(self.player.duration)}"
+        )
+
+    def on_stop_playback(self) -> None:
+        self._stop_playback(reset=True)
+
+    def _stop_playback(self, reset: bool = True) -> None:
+        self.player.pause()
+        if reset:
+            self.player.seek(0.0)
+        self.transport.set_playing(False)
+        self._stop_tick()
+        self.roll.set_playhead(None)
+        self.wave.set_playhead(None)
+        if self.result is not None:
+            self.transport.update_time(0.0, self.player.duration)
+
+    def on_seek(self, seconds: float) -> None:
+        if not self.player.has_audio:
+            return
+        self.player.seek(seconds)
+        self.transport.update_time(self.player.position, self.player.duration)
+        self.roll.set_playhead(self.player.position)
+        self.wave.set_playhead(self.player.position)
+        if self.player.playing:
+            self._start_tick()
+
+    def on_volume(self, value: float) -> None:
+        self.player.volume = max(0.0, min(1.0, value))
+
+    def _start_tick(self) -> None:
+        self._stop_tick()
+        self._tick()
+
+    def _tick(self) -> None:
+        if not self.player.playing:
+            self._play_timer = None
+            self.transport.set_playing(False)
+            self.transport.update_time(self.player.position, self.player.duration)
+            if self.player.position >= self.player.duration - 0.05:
+                self.roll.set_playhead(None)
+                self.wave.set_playhead(None)
+                self.transport.update_time(0.0, self.player.duration)
+                self.status.set_message("预览结束")
+            else:
+                self.status.set_message("已暂停")
+            return
+        position = self.player.position
+        self.transport.update_time(position, self.player.duration)
+        self.roll.set_playhead(position)
+        self.wave.set_playhead(position)
+        self._play_timer = self.after(40, self._tick)
+
+    def _stop_tick(self) -> None:
+        if self._play_timer is not None:
+            self.after_cancel(self._play_timer)
+            self._play_timer = None
+
+    def _open_in_system_player(self) -> None:
+        if self.result is None:
             return
         target = Path(tempfile.gettempdir()) / "musicgen_preview.wav"
         try:
             write_wav(target, self.result.audio, self.result.sample_rate, bit_depth=16)
             os.startfile(str(target))  # type: ignore[attr-defined]
-            self.status.set_message("已交给系统播放器预览")
-            self.output.log(f"预览文件：{target}")
+            self.log(f"已交给系统播放器：{target}")
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("无法播放", str(exc))
 
+    # ---------------------------------------------------------------- 导出
     def on_export(self) -> None:
         if self.project is None or self.result is None:
-            self.output.log("还没有可导出的结果，先渲染一次。", "warn")
+            self.log("还没有可导出的结果，先渲染一次。", "warn")
             return
         default = self.project.path.with_suffix(".wav")
         chosen = filedialog.asksaveasfilename(
@@ -463,7 +659,7 @@ class MusicGenApp(tk.Tk):
         self.output_path = path
         size = path.stat().st_size / (1024 * 1024)
         self.status.set_message(f"已导出 {path.name}（{size:.1f}MB）")
-        self.output.log(f"导出 {path}（{size:.1f}MB, 24bit）", "ok")
+        self.log(f"导出 {path}（{size:.1f}MB, 24bit）", "ok")
 
     # ---------------------------------------------------------------- 音源
     def on_samples(self) -> None:
@@ -475,7 +671,7 @@ class MusicGenApp(tk.Tk):
                                        f"钢琴音源已缓存 {have}/{want} 个采样。\n要重新下载吗？"):
                 return
         self._set_busy(True, "正在下载钢琴音源…")
-        self.output.log("开始下载钢琴音源（FluidR3 GM）")
+        self.log("开始下载钢琴音源（FluidR3 GM）")
 
         def worker() -> None:
             try:
@@ -496,12 +692,49 @@ class MusicGenApp(tk.Tk):
         self.status.set_progress(1.0)
         total = len(report.downloaded) + len(report.skipped)
         self.status.set_message(f"音源就绪：{total} 个采样")
-        self.output.log(report.summary(), "ok" if report.ok else "warn")
-        self._refresh_sample_items()
+        self.log(report.summary(), "ok" if report.ok else "warn")
+        self._refresh_status_items()
         if self.project is not None:
             self._select_ui(self.selected)
+            self._refresh_explorer()
         if report.failed:
             messagebox.showwarning("部分采样失败", report.summary())
+
+    # ---------------------------------------------------------------- 布局持久化
+    def _schedule_save_layout(self) -> None:
+        if self._save_timer is not None:
+            self.after_cancel(self._save_timer)
+        self._save_timer = self.after(700, self.save_layout)
+
+    def _collect_layout(self) -> dict:
+        manager = self.dock_manager
+        sizes = dict(manager.sizes)
+        for area in ("left", "right"):
+            if str(manager.containers[area]) in manager.paned[area].panes():
+                measured = manager.containers[area].winfo_width()
+                if measured > 40:
+                    sizes[area] = measured
+        if str(manager.containers["bottom"]) in manager.paned["bottom"].panes():
+            measured = manager.containers["bottom"].winfo_height()
+            if measured > 40:
+                sizes["bottom"] = measured
+        sashes = []
+        if len(self.hsplit.panes()) >= 2:
+            sashes.append(self.hsplit.sash_coord(0))
+        if len(self.center_host.panes()) >= 2:
+            sashes.append(self.center_host.sash_coord(0))
+        return {
+            "geometry": self.geometry(),
+            "page": self.page,
+            "docks": manager.state(),
+            "sizes": sizes,
+            "sash": sashes,
+            "volume": float(self.player.volume),
+        }
+
+    def save_layout(self) -> None:
+        self._save_timer = None
+        layout.save_layout(self._collect_layout())
 
     # ---------------------------------------------------------------- 帮助
     def show_format_help(self) -> None:
@@ -529,8 +762,17 @@ class MusicGenApp(tk.Tk):
             f"MusicGen {__version__}\n把 *.musicproj 工程渲染成乐器纯音乐 WAV。\n\n"
             "音源：FluidR3 GM（自由使用）\n"
             "渲染：numpy + soundfile\n"
+            f"预览：{'内置播放器（sounddevice）' if self.player.available else '系统播放器'}\n"
             "界面：Tkinter（Visual Studio 2022 风格）",
         )
+
+    def on_quit(self) -> None:
+        self._stop_tick()
+        self.player.pause()
+        try:
+            self.save_layout()
+        finally:
+            self.destroy()
 
 
 def run_gui(project_path: str | None = None) -> int:

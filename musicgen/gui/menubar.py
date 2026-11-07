@@ -30,17 +30,18 @@ class MenuBar(tk.Frame):
         self.buttons.append(button)
         key = label[0].lower()
         try:
-            self.winfo_toplevel().bind(
-                f"<Alt-Key-{key}>", lambda _e, m=menu, b=button: self._post(m, b)
-            )
+            self.winfo_toplevel().bind(f"<Alt-Key-{key}>", self._post_at(menu, button))
         except Exception:  # noqa: BLE001 - 绑定失败不影响鼠标操作
             pass
         return button
 
     @staticmethod
-    def _post(menu: tk.Menu, button: tk.Menubutton) -> str:
-        menu.post(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
-        return "break"
+    def _post_at(menu: tk.Menu, button: tk.Menubutton):
+        def post(_event=None) -> str:
+            menu.post(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+            return "break"
+
+        return post
 
 
 def build(root: tk.Misc, app) -> MenuBar:
@@ -64,6 +65,7 @@ def build(root: tk.Misc, app) -> MenuBar:
     edit_menu.add_separator()
     edit_menu.add_command(label="清空输出", command=app.clear_output)
 
+    # 视图：文档页 + 工具窗口（勾选式）+ 布局
     view_menu = theme.make_menu(bar)
     view_menu.add_command(label="钢琴卷帘", accelerator="Ctrl+1",
                           command=lambda: app.goto_page("roll"))
@@ -72,13 +74,38 @@ def build(root: tk.Misc, app) -> MenuBar:
     view_menu.add_command(label="工程信息", accelerator="Ctrl+3",
                           command=lambda: app.goto_page("info"))
     view_menu.add_separator()
-    view_menu.add_command(label="显示/隐藏输出面板", accelerator="Ctrl+L",
-                          command=app.toggle_output)
+
+    view_vars: dict[str, tk.BooleanVar] = {}
+    for key, label, accelerator in (
+        ("explorer", "解决方案资源管理器", "Ctrl+Shift+E"),
+        ("properties", "属性窗口", "F4"),
+        ("output", "输出窗口", "Ctrl+L"),
+    ):
+        var = tk.BooleanVar(value=True)
+        view_vars[key] = var
+        view_menu.add_checkbutton(
+            label=label, variable=var, accelerator=accelerator,
+            command=lambda k=key: app.toggle_panel(k),
+        )
+    app._view_vars = view_vars
+
+    view_menu.add_separator()
+    dock_menu = theme.make_menu(view_menu)
+    for key, label in (("explorer", "解决方案资源管理器"), ("properties", "属性"),
+                       ("output", "输出")):
+        sub = theme.make_menu(dock_menu)
+        for area, area_label in (("left", "左侧"), ("right", "右侧"), ("bottom", "底部")):
+            sub.add_command(label=area_label,
+                            command=lambda k=key, a=area: app.dock_panel(k, a))
+        dock_menu.add_cascade(label=label, menu=sub)
+    view_menu.add_cascade(label="停靠到", menu=dock_menu)
+    view_menu.add_command(label="重置布局", command=app.reset_layout)
     view_menu.add_command(label="复位卷帘缩放", command=app.reset_zoom)
 
     render_menu = theme.make_menu(bar)
     render_menu.add_command(label="渲染工程", accelerator="Ctrl+R", command=app.on_render)
-    render_menu.add_command(label="播放", accelerator="Space", command=app.on_play)
+    render_menu.add_command(label="预览（播放/暂停）", accelerator="Space", command=app.on_play)
+    render_menu.add_command(label="停止预览", accelerator="Esc", command=app.on_stop_playback)
     render_menu.add_separator()
     render_menu.add_command(label="下载 / 更新音源", command=app.on_samples)
     render_menu.add_command(label="重新载入工程", accelerator="F5", command=app.on_refresh)

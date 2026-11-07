@@ -17,6 +17,7 @@ class WaveformPage(tk.Frame):
         self.audio: np.ndarray | None = None
         self.sample_rate = 44100
         self.summary = ""
+        self.playhead: float | None = None
         self.canvas = tk.Canvas(self, bg=T["editor"], highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _e: self.redraw())
@@ -31,7 +32,25 @@ class WaveformPage(tk.Frame):
     def clear(self) -> None:
         self.audio = None
         self.summary = ""
+        self.playhead = None
         self.redraw()
+
+    def set_playhead(self, seconds: float | None) -> None:
+        self.playhead = seconds
+        self._draw_playhead()
+
+    def _draw_playhead(self) -> None:
+        c = self.canvas
+        c.delete("playhead")
+        if self.playhead is None or self.audio is None or self.audio.size == 0:
+            return
+        width, height = c.winfo_width(), c.winfo_height()
+        duration = len(self.audio[0]) / self.sample_rate
+        if duration <= 0:
+            return
+        ratio = min(1.0, max(0.0, self.playhead / duration))
+        x = 8 + (width - 16) * ratio
+        c.create_line(x, 30, x, height - 16, fill="#FFFFFF", width=1, tags="playhead")
 
     # ---- 绘制 ---------------------------------------------------------
     def redraw(self) -> None:
@@ -87,3 +106,5 @@ class WaveformPage(tk.Frame):
             color = T["error"] if clipped else T["accent"]
             px = 8 + x
             c.create_line(px, mid - high * half, px, mid - low * half, fill=color)
+
+        self._draw_playhead()

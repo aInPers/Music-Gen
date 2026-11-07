@@ -102,6 +102,14 @@ class SolutionExplorer(tk.Frame):
         elif self.track_items:
             self.tree.selection_set(self.track_items[0])
 
+    def load_empty(self) -> None:
+        """没有工程时显示占位提示。"""
+        self._project = None
+        self.tree.delete(*self.tree.get_children())
+        self._kinds.clear()
+        self.track_items = []
+        self.tree.insert("", "end", text="  尚未打开工程", image=self._icon("solution"))
+
     def _icon(self, kind: str) -> tk.PhotoImage:
         if kind not in self._icons:
             self._icons[kind] = icons.image(kind, T["panel"])

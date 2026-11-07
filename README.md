@@ -10,6 +10,9 @@
 - **按音轨控制**：乐器、速度（可逐轨覆盖）、音量、声像、混响、是否循环、循环长度/次数、移调
 - **真实钢琴音源**：FluidR3 GM 88 键逐键采样（开源），多镜像并发下载、本地缓存；缺失时自动回退内置合成器
 - **渲染质量**：力度→音量+亮度、松键释放、合成 IR 混响、等功率声像、峰值归一化、16/24/32bit 与 32bit float 输出
+- **内置预览**：渲染完直接在应用里播放——播放/暂停、停止、拖动进度定位、音量，卷帘与波形上有播放头
+- **新建工程向导**：名称/位置/速度/采样率/拍号/模板（示例 or 空白），创建即打开
+- **可停靠的工作区**：资源管理器 / 属性 / 输出可停到左、右、底部或关闭，分栏可拖拽，布局自动记忆
 - **两套入口**：`python -m musicgen render` 与桌面界面
 - **Visual Studio 2022 风格界面**：深色工作区、解决方案资源管理器、文档标签页（钢琴卷帘 / 波形 / 工程信息）、
   属性窗口、输出窗口、蓝色状态栏；界面按面板拆成 13 个模块，加页面只需新增一个文件
@@ -17,7 +20,7 @@
 ## 快速开始
 
 ```bat
-py -3 -m pip install -r requirements.txt
+py -3 -m pip install -r requirements.txt   # numpy / soundfile / sounddevice
 py -3 -m musicgen samples fetch                     # 下载钢琴音源（约 2.6MB）
 py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
@@ -64,10 +67,13 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 
 一个主窗口，四个可拖动调整的区域：
 
+- 顶部：菜单栏、命令条（打开/渲染/导出/音源/重载）、传输条（播放暂停/停止/进度/音量）
 - 左：解决方案资源管理器（工程 → tracks → 音轨文件，右键静音/独奏）
 - 中：文档标签页——钢琴卷帘（左侧钢琴键、小节网格、循环标记、缩放平移）、波形、工程信息
 - 右：属性（音量/声像/混响滑杆、循环、静音/独奏，应用后写回音轨 XML）
 - 下：输出日志（分级着色），最底是 VS 蓝色状态栏
+
+三个工具窗口都能换停靠位置（面板标题栏右上角的按钮），窗口大小/停靠/分栏宽度会记在 `~/.musicgen/ui.json`。
 
 ## 文档与测试
 

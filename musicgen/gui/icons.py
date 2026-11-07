@@ -151,6 +151,21 @@ def draw(canvas: tk.Canvas, kind: str, cx: float, cy: float, size: float, color:
                            px(10.4), py(2.8), fill=color, width=max(1, int(1.2 * s)))
         canvas.create_rectangle(px(5.2), py(9.0), px(10.8), py(13.2),
                                 outline=color, width=max(1, int(1.2 * s)))
+    elif kind == "bolt":
+        canvas.create_polygon(
+            px(9.2), py(2.6), px(4.4), py(9.0), px(7.6), py(9.0),
+            px(6.8), py(13.4), px(11.6), py(6.8), px(8.4), py(6.8),
+            fill=color, outline="",
+        )
+    elif kind == "pause":
+        for value in (5.6, 9.4):
+            canvas.create_rectangle(px(value), py(3.5), px(value + 1.8), py(12.5),
+                                    fill=color, outline="")
+    elif kind == "dock":
+        canvas.create_rectangle(px(2.8), py(3.2), px(13.2), py(12.8),
+                                outline=color, width=max(1, int(1.3 * s)))
+        canvas.create_rectangle(px(2.8), py(3.2), px(6.6), py(12.8),
+                                fill=color, outline="")
     elif kind == "close":
         canvas.create_line(px(4.5), py(4.5), px(11.5), py(11.5), fill=color,
                            width=max(1, int(1.3 * s)))
