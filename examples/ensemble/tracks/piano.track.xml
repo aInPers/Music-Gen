@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Piano" instrument="piano" gain="-10dB" pan="-0.06" reverb="0.3">
+  <note time="0" dur="2.6" pitch="D3,F3,A3" vel="0.46" />
+  <note time="3" dur="0.9" pitch="D3,F3,A3" vel="0.34" />
+  <note time="4" dur="2.6" pitch="Bb2,D3,F3" vel="0.46" />
+  <note time="7" dur="0.9" pitch="Bb2,D3,F3" vel="0.34" />
+  <note time="8" dur="2.6" pitch="F2,A2,C3" vel="0.46" />
+  <note time="11" dur="0.9" pitch="F2,A2,C3" vel="0.34" />
+  <note time="12" dur="2.6" pitch="C3,E3,G3" vel="0.46" />
+  <note time="15" dur="0.9" pitch="C3,E3,G3" vel="0.34" />
+  <note time="16" dur="2.6" pitch="D3,F3,A3" vel="0.46" />
+  <note time="19" dur="0.9" pitch="D3,F3,A3" vel="0.34" />
+  <note time="20" dur="2.6" pitch="Bb2,D3,F3" vel="0.46" />
+  <note time="23" dur="0.9" pitch="Bb2,D3,F3" vel="0.34" />
+  <note time="24" dur="2.6" pitch="F2,A2,C3" vel="0.46" />
+  <note time="27" dur="0.9" pitch="F2,A2,C3" vel="0.34" />
+  <note time="28" dur="2.6" pitch="C3,E3,G3" vel="0.46" />
+  <note time="31" dur="0.9" pitch="C3,E3,G3" vel="0.34" />
+</track>

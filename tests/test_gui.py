@@ -150,6 +150,29 @@ class GuiTests(unittest.TestCase):
         self.app.open_project(str(self.project_path))
         self.app.update()
 
+    def test_switch_instrument(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.select_track(1)
+        self.app.update()
+        props = self.app.dock_manager.panel("properties")
+        self.assertEqual(props.instrument.get(), "piano")
+        self.assertIn("采样", props.labels["samples"].cget("text"))
+
+        props.instrument.set("violin")
+        props._refresh_sample_state()
+        self.app.on_apply()
+        self.app.update()
+        self.assertEqual(self.app.project.tracks[1].instrument, "violin")
+        text = (self.project_path.parent / "tracks" / "ostinato.track.xml").read_text(
+            encoding="utf-8")
+        self.assertIn('instrument="violin"', text)
+
+        # 改回钢琴，后面的用例继续用示例工程
+        props.instrument.set("piano")
+        self.app.on_apply()
+        self.app.update()
+        self.assertEqual(self.app.project.tracks[1].instrument, "piano")
+
     # ---- 停靠 ---------------------------------------------------------
     def test_docking(self) -> None:
         manager = self.app.dock_manager

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Trumpet" instrument="trumpet" gain="-7.5dB" pan="0.05" reverb="0.4">
+  <note time="16" dur="1.9" pitch="D5" vel="0.6" />
+  <note time="18" dur="1.9" pitch="C5" vel="0.58" />
+  <note time="20" dur="1.9" pitch="Bb4" vel="0.56" />
+  <note time="22" dur="1.9" pitch="A4" vel="0.54" />
+  <note time="24" dur="3.8" pitch="G4" vel="0.55" />
+  <note time="28" dur="1.9" pitch="F4" vel="0.54" />
+  <note time="30" dur="1.9" pitch="E4" vel="0.5" />
+</track>

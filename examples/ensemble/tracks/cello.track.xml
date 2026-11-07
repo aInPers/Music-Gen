@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Cello" instrument="cello" gain="-7dB" pan="-0.18" reverb="0.25">
+  <note time="0" dur="3.2" pitch="D2" vel="0.62" />
+  <note time="3" dur="0.8" pitch="D2" vel="0.46" />
+  <note time="3.5" dur="0.45" pitch="D2" vel="0.38" />
+  <note time="4" dur="3.2" pitch="Bb2" vel="0.62" />
+  <note time="7" dur="0.8" pitch="Bb2" vel="0.46" />
+  <note time="7.5" dur="0.45" pitch="Bb2" vel="0.38" />
+  <note time="8" dur="3.2" pitch="F2" vel="0.62" />
+  <note time="11" dur="0.8" pitch="F2" vel="0.46" />
+  <note time="11.5" dur="0.45" pitch="F2" vel="0.38" />
+  <note time="12" dur="3.2" pitch="C2" vel="0.62" />
+  <note time="15" dur="0.8" pitch="C2" vel="0.46" />
+  <note time="15.5" dur="0.45" pitch="C2" vel="0.38" />
+  <note time="16" dur="3.2" pitch="D2" vel="0.62" />
+  <note time="19" dur="0.8" pitch="D2" vel="0.46" />
+  <note time="19.5" dur="0.45" pitch="D2" vel="0.38" />
+  <note time="20" dur="3.2" pitch="Bb2" vel="0.62" />
+  <note time="23" dur="0.8" pitch="Bb2" vel="0.46" />
+  <note time="23.5" dur="0.45" pitch="Bb2" vel="0.38" />
+  <note time="24" dur="3.2" pitch="F2" vel="0.62" />
+  <note time="27" dur="0.8" pitch="F2" vel="0.46" />
+  <note time="27.5" dur="0.45" pitch="F2" vel="0.38" />
+  <note time="28" dur="3.2" pitch="A2" vel="0.62" />
+  <note time="31" dur="0.8" pitch="A2" vel="0.46" />
+  <note time="31.5" dur="0.45" pitch="A2" vel="0.38" />
+</track>

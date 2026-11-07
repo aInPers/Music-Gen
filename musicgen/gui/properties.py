@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
+from ..samples import fetch
 from . import theme, widgets
 
 T = theme.PALETTE
@@ -47,7 +48,11 @@ class PropertiesPanel(tk.Frame):
 
         self.grid.add_category("常规")
         self.labels["name"] = self.grid.add_text("名称")
-        self.labels["instrument"] = self.grid.add_text("乐器")
+        self.instrument = self.grid.add_row(
+            "乐器",
+            lambda holder: widgets.Dropdown(holder, instrument_items(), "", self._on_instrument),
+        )
+        self.labels["samples"] = self.grid.add_text("采样", color=T["text_dim"])
         self.labels["notes"] = self.grid.add_text("音符数")
         self.labels["file"] = self.grid.add_text("文件", color=T["text_dim"])
 
@@ -95,6 +100,23 @@ class PropertiesPanel(tk.Frame):
         return f"{'右' if value > 0 else '左'} {abs(value):.2f}"
 
     # ---- 数据 ---------------------------------------------------------
+    def _on_instrument(self, _value: str) -> None:
+        """换乐器后立刻刷新采样状态（保存仍由「应用并保存」负责）。"""
+        self._refresh_sample_state()
+
+    def _refresh_sample_state(self, instrument_note: str = "") -> None:
+        key = fetch.resolve(self.instrument.get())
+        if key not in fetch.SOURCES:
+            self.labels["samples"].configure(text="未注册 · 用合成器", fg=T["warn"])
+            return
+        have, want = fetch.instrument_status(key)
+        if have >= want:
+            self.labels["samples"].configure(text=f"{have}/{want} 个采样", fg=T["ok"])
+        else:
+            self.labels["samples"].configure(
+                text=f"{have}/{want} 个采样 · 缺，用合成器{instrument_note}", fg=T["warn"]
+            )
+
     def set_track(self, track, instrument_note: str = "") -> None:
         self.track = track
         editable = track is not None
@@ -103,16 +125,25 @@ class PropertiesPanel(tk.Frame):
         for key in ("gain_db", "pan", "reverb", "loop", "mute", "solo"):
             self.vars[key].set_enabled(editable)  # type: ignore[attr-defined]
         self.entry_loop.configure(state="normal" if editable else "disabled")
+        self.instrument.set_enabled(editable)  # type: ignore[attr-defined]
 
         if track is None:
             self.labels["name"].configure(text="未选中音轨")
-            self.labels["instrument"].configure(text="—")
+            self.instrument.set("")
+            self.labels["samples"].configure(text="—", fg=T["text_dim"])
             self.labels["notes"].configure(text="—")
             self.labels["file"].configure(text="—")
             return
 
+        key = fetch.resolve(track.instrument)
+        items = instrument_items()
+        if key not in dict(items):  # 未注册的乐器也让它显示出来
+            items.append((key, f"{key}（未注册）"))
+        self.instrument.set_items(items)
+        self.instrument.set(key)
+        self._refresh_sample_state(instrument_note)
+
         self.labels["name"].configure(text=track.name)
-        self.labels["instrument"].configure(text=track.instrument + (instrument_note or ""))
         self.labels["notes"].configure(text=str(len(track.notes)))
         self.labels["file"].configure(text=track.path.name if track.path else "—")
         self.vars["gain_db"].set(track.gain_db)      # type: ignore[attr-defined]
@@ -132,6 +163,7 @@ class PropertiesPanel(tk.Frame):
 
     def values(self) -> dict:
         return {
+            "instrument": self.instrument.get(),
             "gain_db": self.vars["gain_db"].get(),
             "pan": self.vars["pan"].get(),
             "reverb": self.vars["reverb"].get(),
@@ -143,3 +175,8 @@ class PropertiesPanel(tk.Frame):
 
     def _apply(self) -> None:
         self.on_apply()
+
+
+def instrument_items() -> list[tuple[str, str]]:
+    """下拉框选项：已注册乐器（中文名 + 注册键）。"""
+    return [(key, fetch.display(key)) for key in fetch.SOURCES]

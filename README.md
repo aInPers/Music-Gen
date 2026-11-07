@@ -8,7 +8,9 @@
 
 - **工程即 XML**：一个 `*.musicproj` + 每条音轨一个 `*.track.xml`，可读、可手改、好做版本管理
 - **按音轨控制**：乐器、速度（可逐轨覆盖）、音量、声像、混响、是否循环、循环长度/次数、移调
-- **真实钢琴音源**：FluidR3 GM 88 键逐键采样（开源），多镜像并发下载、本地缓存；缺失时自动回退内置合成器
+- **四种真实音色**：钢琴 / 小提琴 / 大提琴 / 小号，FluidR3 GM 逐音采样（开源），共 212 个采样；
+  多镜像并发下载、本地缓存、逐件电平校准，缺采样时自动回退内置合成器
+- **乐器随手换**：工程里写 `instrument="cello"` 或 `instrument="大提琴"` 都行，界面属性面板有下拉框
 - **渲染质量**：力度→音量+亮度、松键释放、合成 IR 混响、等功率声像、峰值归一化、16/24/32bit 与 32bit float 输出
 - **内置预览**：渲染完直接在应用里播放——播放/暂停、停止、拖动进度定位、音量，卷帘与波形上有播放头
 - **新建工程向导**：名称/位置/速度/采样率/拍号/模板（示例 or 空白），创建即打开
@@ -23,8 +25,9 @@
 
 ```bat
 py -3 -m pip install -r requirements.txt   # numpy / soundfile / sounddevice
-py -3 -m musicgen samples fetch                     # 下载钢琴音源（约 2.6MB）
+py -3 -m musicgen samples fetch                     # 下载全部音源（四件乐器，约 6MB）
 py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
+py -3 -m musicgen render examples\ensemble\ensemble.musicproj -o trio.wav   # 四重奏示例
 py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 ```
 
@@ -38,6 +41,11 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
   <track file="tracks/chords.track.xml"/>
   <track file="tracks/ostinato.track.xml" gain="-4dB"/>
 </musicproj>
+
+<!-- tracks/violin.track.xml：instrument 可写 violin / cello / trumpet / piano，也可写中文名 -->
+<track name="Violin" instrument="violin" gain="-3dB" pan="0.22" reverb="0.35">
+  <note time="0" dur="1" pitch="A4" vel="0.72"/>
+</track>
 ```
 
 ```xml
@@ -72,7 +80,7 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 - 顶部：菜单栏、命令条（打开/渲染/导出/音源/重载）、传输条（播放暂停/停止/进度/音量）
 - 左：解决方案资源管理器（工程 → tracks → 音轨文件，右键静音/独奏）+ 音符面板
 - 中：文档标签页——钢琴卷帘（钢琴键、小节网格、循环标记、双轴滚动与缩放）、波形、工程信息
-- 右：属性（音量/声像/混响滑杆、循环、静音/独奏，应用后写回音轨 XML）
+- 右：属性（**乐器下拉框** + 采样状态、音量/声像/混响滑杆、循环、静音/独奏，应用后写回音轨 XML）
 - 左下：音符（选中那一段的起始/时长/音高/力度，可复制、删除、跳相邻）
 - 下：输出日志（分级着色），最底是 VS 蓝色状态栏
 

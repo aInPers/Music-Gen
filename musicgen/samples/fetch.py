@@ -71,30 +71,113 @@ class InstrumentSource:
         return range(self.midi_low, self.midi_high + 1)
 
 
-_PIANO_MIRRORS = [
-    "https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/FluidR3_GM/"
-    "acoustic_grand_piano-mp3/{name}.{ext}",
-    "https://fastly.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/FluidR3_GM/"
-    "acoustic_grand_piano-mp3/{name}.{ext}",
-    "https://raw.githubusercontent.com/gleitz/midi-js-soundfonts/gh-pages/FluidR3_GM/"
-    "acoustic_grand_piano-mp3/{name}.{ext}",
-    "https://gcore.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/FluidR3_GM/"
-    "acoustic_grand_piano-mp3/{name}.{ext}",
-]
+_FLUID_GH = "gh/gleitz/midi-js-soundfonts@gh-pages/FluidR3_GM/{gm}-mp3/{name}.{ext}"
+_FLUID_RAW = "gleitz/midi-js-soundfonts/gh-pages/FluidR3_GM/{gm}-mp3/{name}.{ext}"
+
+
+def _fluid_mirrors(gm_name: str) -> list[str]:
+    """FluidR3 GM（开源 GM 音源）某件乐器的多镜像下载地址。
+
+    按“通常最快”的顺序排列：jsDelivr 主站 → fastly → gcore → GitHub 原始文件。
+    单个文件失败/超时会自动换下一个镜像。
+    """
+    gh = _FLUID_GH.format(gm=gm_name, name="{name}", ext="{ext}")
+    raw = _FLUID_RAW.format(gm=gm_name, name="{name}", ext="{ext}")
+    return [
+        f"https://cdn.jsdelivr.net/{gh}",
+        f"https://fastly.jsdelivr.net/{gh}",
+        f"https://gcore.jsdelivr.net/{gh}",
+        f"https://raw.githubusercontent.com/{raw}",
+    ]
+
+
+_FLUID_LICENSE = "FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）"
+_FLUID_HOME = "https://github.com/gleitz/midi-js-soundfonts"
 
 SOURCES: dict[str, InstrumentSource] = {
     "piano": InstrumentSource(
         key="piano",
         title="FluidR3 GM — Acoustic Grand Piano",
-        license="FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）",
-        homepage="https://github.com/gleitz/midi-js-soundfonts",
+        license=_FLUID_LICENSE,
+        homepage=_FLUID_HOME,
         extension="mp3",
-        url_templates=_PIANO_MIRRORS,
+        url_templates=_fluid_mirrors("acoustic_grand_piano"),
         midi_low=21,
         midi_high=108,
         note_range_label="A0–C8（88 键全覆盖）",
     ),
+    "cello": InstrumentSource(
+        key="cello",
+        title="FluidR3 GM — Cello",
+        license=_FLUID_LICENSE,
+        homepage=_FLUID_HOME,
+        extension="mp3",
+        url_templates=_fluid_mirrors("cello"),
+        midi_low=36,
+        midi_high=84,
+        note_range_label="C2–C6（大提琴常用音域）",
+    ),
+    "violin": InstrumentSource(
+        key="violin",
+        title="FluidR3 GM — Violin",
+        license=_FLUID_LICENSE,
+        homepage=_FLUID_HOME,
+        extension="mp3",
+        url_templates=_fluid_mirrors("violin"),
+        midi_low=55,
+        midi_high=96,
+        note_range_label="G3–C7（小提琴常用音域）",
+    ),
+    "trumpet": InstrumentSource(
+        key="trumpet",
+        title="FluidR3 GM — Trumpet",
+        license=_FLUID_LICENSE,
+        homepage=_FLUID_HOME,
+        extension="mp3",
+        url_templates=_fluid_mirrors("trumpet"),
+        midi_low=52,
+        midi_high=84,
+        note_range_label="E3–C6（小号常用音域）",
+    ),
 }
+
+#: 界面显示用的中文名（顺序即下拉框顺序）
+LABELS: dict[str, str] = {
+    "piano": "钢琴",
+    "violin": "小提琴",
+    "cello": "大提琴",
+    "trumpet": "小号",
+}
+
+#: 工程文件里可以直接写中文名 / 常见别名
+ALIASES: dict[str, str] = {
+    "钢琴": "piano",
+    "小提琴": "violin",
+    "大提琴": "cello",
+    "小号": "trumpet",
+    "grand piano": "piano",
+    "strings": "violin",
+    "violoncello": "cello",
+}
+
+
+def resolve(name: str | None) -> str:
+    """把工程里的乐器名规整成注册键（``大提琴`` → ``cello``）。"""
+    key = (name or "piano").strip()
+    lowered = key.lower()
+    return ALIASES.get(key, ALIASES.get(lowered, lowered))
+
+
+def label(instrument: str) -> str:
+    """中文名（没有登记时退回注册键）。"""
+    key = resolve(instrument)
+    return LABELS.get(key, key)
+
+
+def display(instrument: str) -> str:
+    """下拉框/日志里的写法：``小提琴 (violin)``。"""
+    key = resolve(instrument)
+    return f"{LABELS[key]} ({key})" if key in LABELS else key
 
 
 class FetchError(RuntimeError):
@@ -120,7 +203,7 @@ class FetchReport:
 
     def summary(self) -> str:
         lines = [
-            f"乐器: {self.instrument}",
+            f"乐器: {display(self.instrument)}",
             f"缓存目录: {self.cache_dir}",
             f"总计 {self.total} 个采样 | 新下载 {len(self.downloaded)} | "
             f"已存在 {len(self.skipped)} | 失败 {len(self.failed)} | "
@@ -137,9 +220,10 @@ def cache_dir_for(instrument: str, cache_root: Path | None = None) -> Path:
 
 
 def sample_path(instrument: str, note_name: str, cache_root: Path | None = None) -> Path:
-    source = SOURCES.get(instrument)
+    key = resolve(instrument)
+    source = SOURCES.get(key)
     ext = source.extension if source else "wav"
-    return cache_dir_for(instrument, cache_root) / f"{note_name}.{ext}"
+    return cache_dir_for(key, cache_root) / f"{note_name}.{ext}"
 
 
 def _looks_like_audio(payload: bytes) -> bool:
@@ -196,10 +280,12 @@ def fetch_instrument(
     progress: Callable[[int, int, str], None] | None = None,
 ) -> FetchReport:
     """下载（或复用）某个乐器的全套采样。"""
+    instrument = resolve(instrument)
     source = SOURCES.get(instrument)
     if source is None:
         raise FetchError(
-            f"未知乐器 '{instrument}'，可选: {', '.join(SOURCES)}"
+            f"未知乐器 '{instrument}'，可选: "
+            + "、".join(f"{LABELS.get(k, k)}({k})" for k in SOURCES)
         )
 
     target_dir = cache_dir_for(instrument, cache_root)
@@ -276,6 +362,7 @@ def available_notes(instrument: str, cache_root: Path | None = None) -> list[int
     """已缓存采样的 MIDI 音高列表（升序）。"""
     from ..core.notes import parse_pitch
 
+    instrument = resolve(instrument)
     source = SOURCES.get(instrument)
     ext = source.extension if source else "wav"
     folder = cache_dir_for(instrument, cache_root)
@@ -292,6 +379,7 @@ def available_notes(instrument: str, cache_root: Path | None = None) -> list[int
 
 def instrument_status(instrument: str, cache_root: Path | None = None) -> tuple[int, int]:
     """返回（已缓存数量, 应有数量）。"""
+    instrument = resolve(instrument)
     source = SOURCES.get(instrument)
     expected = len(list(source.midi_range())) if source else 0
     return len(available_notes(instrument, cache_root)), expected

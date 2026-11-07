@@ -25,6 +25,19 @@ TRUNCATE_FADE = 0.15
 #: 力度量化步长，便于复用同一片段
 VELOCITY_STEP = 0.05
 
+#: 各件乐器采样本身的电平差很多，这里校准到大致相同的响度
+#: （值 = 以钢琴 C4 的 RMS 为基准测出来的补偿倍数）
+INSTRUMENT_GAIN: dict[str, float] = {
+    "piano": 16.0,
+    "cello": 7.0,
+    "violin": 6.0,
+    "trumpet": 9.0,
+}
+DEFAULT_INSTRUMENT_GAIN = 10.0
+
+#: 借最近采样变调时允许的最大半音数，超过就说明超出音域了
+MAX_SAMPLE_SHIFT = 7
+
 
 def _load_audio(path: Path) -> tuple[np.ndarray, int]:
     """读取任意受支持格式，返回 (声道×样本 的 float32 数组, 采样率)。"""
@@ -83,10 +96,10 @@ class _CachedSample:
 
 
 class SampleInstrument:
-    """基于采样文件的乐器。当前用于 ``piano``。"""
+    """基于采样文件的乐器（钢琴 / 大提琴 / 小提琴 / 小号）。"""
 
-    #: 采样整体偏小，这里补足到接近满刻度的电平
-    instrument_gain = 16.0
+    #: 采样整体偏小，这里补足到接近满刻度的电平（各乐器见 INSTRUMENT_GAIN）
+    instrument_gain = DEFAULT_INSTRUMENT_GAIN
 
     def __init__(
         self,
@@ -98,10 +111,12 @@ class SampleInstrument:
         self.name = name
         self.cache_root = cache_root
         self.sample_rate = sample_rate
+        self.instrument_gain = INSTRUMENT_GAIN.get(name, DEFAULT_INSTRUMENT_GAIN)
         self._warn = warn or (lambda msg: None)
         self._cache: dict[int, _CachedSample | None] = {}
         self._available: list[int] = fetch.available_notes(name, cache_root)
         self._missing_warned = False
+        self._range_warned = False
 
     # ---- 元信息 -------------------------------------------------------
     @property
@@ -143,6 +158,18 @@ class SampleInstrument:
     # ---- 渲染单个音 ---------------------------------------------------
     def render_note(self, midi: int, velocity: float, duration: float) -> np.ndarray | None:
         """渲染一个音，返回 (2, N) float32；无采样时返回 None。"""
+        nearest = self._nearest(midi)
+        if nearest is not None and abs(midi - nearest) > MAX_SAMPLE_SHIFT:
+            if not self._range_warned:
+                source = fetch.SOURCES.get(self.name)
+                span = source.note_range_label if source else "未知音域"
+                self._warn(
+                    f"乐器 '{self.name}' 的采样音域为 {span}，"
+                    f"{midi_to_name(midi)} 超出范围，该音改用内置合成器"
+                )
+                self._range_warned = True
+            return None
+
         cached = self._get_sample(midi)
         if cached is None:
             if not self._missing_warned:

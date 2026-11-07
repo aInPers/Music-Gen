@@ -26,7 +26,7 @@ class InstrumentRegistry:
 
     @property
     def available(self) -> list[str]:
-        return sorted(fetch.SOURCES)
+        return list(fetch.SOURCES)
 
     def synth(self) -> SynthInstrument:
         """兜底合成器（不产生警告），用于采样缺失时顶替。"""
@@ -35,7 +35,7 @@ class InstrumentRegistry:
         return self._cache["__synth__"]
 
     def get(self, name: str):
-        key = (name or "piano").strip().lower()
+        key = fetch.resolve(name)
         if key in self._cache:
             return self._cache[key]
 
@@ -52,13 +52,14 @@ class InstrumentRegistry:
             if key not in self._warned:
                 if key in fetch.SOURCES:
                     self._warn(
-                        f"乐器 '{key}' 的采样尚未下载，本次使用内置合成器。"
-                        f"运行 `python -m musicgen samples fetch --instrument {key}` 后可获得真实音色"
+                        f"{fetch.label(key)}的采样尚未下载，本次使用内置合成器。"
+                        f"运行 `python -m musicgen samples fetch --instrument {key}` "
+                        f"或在界面点「音源」后可获得真实音色"
                     )
                 else:
                     self._warn(
-                        f"未注册的乐器 '{key}'，使用内置合成器。"
-                        f"已支持: {', '.join(self.available)}"
+                        f"未注册的乐器 '{key}'，使用内置合成器。已支持: "
+                        + "、".join(f"{fetch.label(k)}({k})" for k in self.available)
                     )
                 self._warned.add(key)
         self._cache[key] = instrument

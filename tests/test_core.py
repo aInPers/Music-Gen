@@ -25,9 +25,15 @@ from musicgen.core.notes import (  # noqa: E402
     parse_pitches,
 )
 from musicgen.core.render import render_project  # noqa: E402
+from musicgen.core.sampler import (  # noqa: E402
+    INSTRUMENT_GAIN,
+    SampleInstrument,
+)
+from musicgen.samples import fetch  # noqa: E402
 from musicgen.core.wavio import write_wav  # noqa: E402
 
 DEMO = ROOT / "examples" / "demo" / "demo.musicproj"
+ENSEMBLE = ROOT / "examples" / "ensemble" / "ensemble.musicproj"
 
 
 class NoteTests(unittest.TestCase):
@@ -105,6 +111,18 @@ class ProjectTests(unittest.TestCase):
         self.assertAlmostEqual(project.tracks[1].loop_len, 4.0)
         self.assertEqual(project.warnings, [])
         self.assertGreater(project.compute_length_seconds(), 20)
+
+    def test_load_ensemble(self) -> None:
+        project = P.load_project(ENSEMBLE)
+        self.assertEqual(len(project.tracks), 4)
+        self.assertEqual([t.instrument for t in project.tracks],
+                         ["violin", "cello", "trumpet", "piano"])
+        for track in project.tracks:
+            source = fetch.SOURCES[track.instrument]
+            for note in track.notes:
+                for pitch in note.pitches:
+                    self.assertGreaterEqual(pitch, source.midi_low)
+                    self.assertLessEqual(pitch, source.midi_high)
 
     def test_auto_length_includes_tail(self) -> None:
         project = P.load_project(DEMO)
@@ -245,6 +263,75 @@ class RenderTests(unittest.TestCase):
         single = render_project(self._project(notes=[(0.0, 1.0, [60], 0.8)]), normalize=False)
         chord = render_project(self._project(notes=[(0.0, 1.0, [60, 64, 67], 0.8)]), normalize=False)
         self.assertGreater(chord.rms, single.rms)
+
+
+class InstrumentTests(unittest.TestCase):
+    """乐器注册表与采样电平/音域。"""
+
+    def test_four_instruments_registered(self) -> None:
+        for key in ("piano", "cello", "violin", "trumpet"):
+            self.assertIn(key, fetch.SOURCES)
+            source = fetch.SOURCES[key]
+            self.assertLess(source.midi_low, source.midi_high)
+            self.assertTrue(source.note_range_label)
+            self.assertGreaterEqual(source.mirror_count, 3)
+
+    def test_chinese_aliases(self) -> None:
+        self.assertEqual(fetch.resolve("大提琴"), "cello")
+        self.assertEqual(fetch.resolve("小提琴"), "violin")
+        self.assertEqual(fetch.resolve("小号"), "trumpet")
+        self.assertEqual(fetch.resolve("钢琴"), "piano")
+        self.assertEqual(fetch.resolve(" Violin "), "violin")
+        self.assertEqual(fetch.resolve(None), "piano")
+        self.assertEqual(fetch.label("cello"), "大提琴")
+        self.assertEqual(fetch.display("trumpet"), "小号 (trumpet)")
+
+    def test_sample_path_uses_resolved_key(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        path = fetch.sample_path("大提琴", "C3", root)
+        self.assertEqual(path.parent.name, "cello")
+        self.assertEqual(path.suffix, ".mp3")
+
+    def test_every_source_has_gain(self) -> None:
+        for key in fetch.SOURCES:
+            self.assertIn(key, INSTRUMENT_GAIN)
+            self.assertGreater(INSTRUMENT_GAIN[key], 0)
+
+    def test_gain_applied_per_instrument(self) -> None:
+        if not fetch.available_notes("cello"):
+            self.skipTest("大提琴采样未缓存")
+        cello = SampleInstrument("cello")
+        self.assertAlmostEqual(cello.instrument_gain, INSTRUMENT_GAIN["cello"])
+        self.assertLess(cello.instrument_gain, INSTRUMENT_GAIN["piano"])  # 大提琴采样本身更响
+
+    def test_out_of_range_note_falls_back(self) -> None:
+        if not fetch.available_notes("cello"):
+            self.skipTest("大提琴采样未缓存")
+        warnings: list[str] = []
+        cello = SampleInstrument("cello", warn=warnings.append)
+        self.assertIsNone(cello.render_note(110, 0.8, 0.4))  # 远超大提琴音域
+        self.assertTrue(any("音域" in w for w in warnings))
+        self.assertIsNotNone(cello.render_note(60, 0.8, 0.4))
+
+    def test_cello_timbre_differs_from_piano(self) -> None:
+        if not (fetch.available_notes("cello") and fetch.available_notes("piano")):
+            self.skipTest("采样未缓存")
+
+        def centroid(instrument: str) -> float:
+            project = P.Project(name="t", path=Path("t.musicproj"), bpm=120.0,
+                                sample_rate=44100, length_spec="2", tail_seconds=0.0)
+            track = P.Track(name="t", instrument=instrument, path=Path("t.xml"))
+            track.notes.append(P.Note(0.0, 1.5, [60], 0.8))
+            project.tracks.append(track)
+            mono = render_project(project, normalize=False).audio.mean(axis=0)
+            window = mono[: 16384] * np.hanning(16384)
+            spectrum = np.abs(np.fft.rfft(window))
+            freqs = np.fft.rfftfreq(len(window), 1 / 44100)
+            return float((spectrum * freqs).sum() / max(spectrum.sum(), 1e-9))
+
+        cello_c, piano_c = centroid("cello"), centroid("piano")
+        self.assertGreater(cello_c, 0.0)
+        self.assertGreater(abs(cello_c - piano_c), 80.0)
 
 
 class WavTests(unittest.TestCase):

@@ -352,14 +352,32 @@ class MusicGenApp(tk.Tk):
             self.transport.set_enabled(has_result)
             self.status.set_progress(None)
 
+    def _project_instruments(self) -> list[str]:
+        """工程里实际用到的、已注册的乐器（按注册顺序）。"""
+        if self.project is None:
+            return []
+        used = {fetch.resolve(track.instrument) for track in self.project.tracks}
+        return [key for key in fetch.SOURCES if key in used]
+
     def _sample_line(self) -> str:
-        have, want = fetch.instrument_status("piano")
-        return f"piano — {have}/{want} 采样"
+        keys = self._project_instruments()
+        if not keys:
+            return "音源：—"
+        parts = []
+        for key in keys:
+            have, want = fetch.instrument_status(key)
+            parts.append(f"{fetch.label(key)} {have}/{want}")
+        return "音源：" + " · ".join(parts)
 
     def _refresh_status_items(self) -> None:
         items = []
-        have, want = fetch.instrument_status("piano")
-        items.append(f"钢琴音源 {have}/{want}" if want else "钢琴音源 —")
+        keys = self._project_instruments() or list(fetch.SOURCES)
+        ready = 0
+        for key in keys:
+            have, want = fetch.instrument_status(key)
+            if want and have >= want:
+                ready += 1
+        items.append(f"音源 {ready}/{len(keys)} 就绪")
         if self.project is not None:
             items.append(f"{self.project.sample_rate / 1000:.1f} kHz")
             items.append(f"{self.project.bpm:g} BPM")
@@ -446,8 +464,9 @@ class MusicGenApp(tk.Tk):
         return self.project.tracks[self.selected]
 
     def _instrument_note(self, track) -> str:
-        if track.instrument in fetch.SOURCES:
-            have, want = fetch.instrument_status(track.instrument)
+        key = fetch.resolve(track.instrument)
+        if key in fetch.SOURCES:
+            have, want = fetch.instrument_status(key)
             if have < want:
                 return "（采样不全）"
         return ""
@@ -662,6 +681,9 @@ class MusicGenApp(tk.Tk):
         if track is None or props is None:
             return
         values = props.values()
+        new_instrument = fetch.resolve(values.get("instrument") or track.instrument)
+        instrument_changed = new_instrument != fetch.resolve(track.instrument)
+        track.instrument = new_instrument
         track.gain_db = float(values["gain_db"])
         track.pan = float(values["pan"])
         track.reverb = float(values["reverb"])
@@ -677,9 +699,19 @@ class MusicGenApp(tk.Tk):
         name = track.path.name if track.path else track.name
         self._save_track(
             track,
-            f"保存音轨 {name}（音量 {track.gain_db:+.1f}dB / 声像 {track.pan:+.2f} / "
+            f"保存音轨 {name}（{fetch.display(track.instrument)}"
+            + (" · 乐器已更换" if instrument_changed else "")
+            + f" / 音量 {track.gain_db:+.1f}dB / 声像 {track.pan:+.2f} / "
             f"混响 {track.reverb:.2f}{' / 循环' if track.loop else ''}）",
         )
+        if instrument_changed:
+            have, want = fetch.instrument_status(new_instrument)
+            if new_instrument in fetch.SOURCES and have < want:
+                self.log(
+                    f"{fetch.label(new_instrument)}的采样还没下全（{have}/{want}），"
+                    f"渲染时会用合成器顶替；点「音源」下载后音色才正确。",
+                    "warn",
+                )
 
     # ---------------------------------------------------------------- 渲染
     def on_render(self) -> None:
@@ -854,40 +886,61 @@ class MusicGenApp(tk.Tk):
     def on_samples(self) -> None:
         if self._busy:
             return
-        have, want = fetch.instrument_status("piano")
-        if have >= want and want:
-            if not messagebox.askyesno("音源已就绪",
-                                       f"钢琴音源已缓存 {have}/{want} 个采样。\n要重新下载吗？"):
+        wanted = self._project_instruments() or [key for key in fetch.SOURCES]
+        missing = [
+            key for key in wanted
+            if fetch.instrument_status(key)[0] < fetch.instrument_status(key)[1]
+        ]
+        if not missing:
+            names = "、".join(fetch.label(key) for key in wanted)
+            if not messagebox.askyesno(
+                "音源已就绪", f"{names} 的采样都已缓存。\n要全部重新下载吗？"
+            ):
                 return
-        self._set_busy(True, "正在下载钢琴音源…")
-        self.log("开始下载钢琴音源（FluidR3 GM）")
+            targets = wanted
+        else:
+            targets = missing
+
+        self._set_busy(True, "正在下载音源…")
+        self.log(
+            "开始下载音源（FluidR3 GM）："
+            + "、".join(f"{fetch.label(key)} {fetch.instrument_status(key)[0]}/"
+                        f"{fetch.instrument_status(key)[1]}" for key in targets)
+        )
 
         def worker() -> None:
+            reports = []
+            count = max(1, len(targets))
             try:
-                report = fetch.fetch_instrument(
-                    "piano",
-                    progress=lambda c, t, n: self._queue.put(
-                        ("progress", (c / max(t, 1), f"下载音源 {c}/{t} · {n}"))
-                    ),
-                )
-                self._queue.put(("samples_done", report))
+                for index, key in enumerate(targets):
+                    label = fetch.label(key)
+
+                    def progress(done: int, total: int, note: str, i=index, name=label) -> None:
+                        fraction = (i + done / max(total, 1)) / count
+                        self._queue.put(("progress", (fraction, f"下载{name} {done}/{total} · {note}")))
+
+                    reports.append(fetch.fetch_instrument(key, progress=progress))
+                self._queue.put(("samples_done", reports))
             except Exception as exc:  # noqa: BLE001
                 self._queue.put(("error", f"音源下载失败：{exc}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_samples_done(self, report) -> None:
+    def _on_samples_done(self, reports) -> None:
         self._set_busy(False)
         self.status.set_progress(1.0)
-        total = len(report.downloaded) + len(report.skipped)
+        total = sum(len(r.downloaded) + len(r.skipped) for r in reports)
         self.status.set_message(f"音源就绪：{total} 个采样")
-        self.log(report.summary(), "ok" if report.ok else "warn")
+        self.log(f"音源就绪：{len(reports)} 件乐器 · {total} 个采样", "ok")
+        failed = [r for r in reports if r.failed]
+        for report in reports:
+            self.log(report.summary(), "ok" if report.ok else "warn")
         self._refresh_status_items()
         if self.project is not None:
             self._select_ui(self.selected)
             self._refresh_explorer()
-        if report.failed:
-            messagebox.showwarning("部分采样失败", report.summary())
+        if failed:
+            messagebox.showwarning("部分采样失败", "\n\n".join(r.summary() for r in failed))
 
     # ---------------------------------------------------------------- 布局持久化
     def _schedule_save_layout(self) -> None:

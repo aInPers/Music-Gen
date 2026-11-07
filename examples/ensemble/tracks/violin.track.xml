@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Violin" instrument="violin" gain="-3dB" pan="0.22" reverb="0.35">
+  <note time="0" dur="0.97" pitch="A4" vel="0.72" />
+  <note time="1" dur="0.97" pitch="D5" vel="0.78" />
+  <note time="2" dur="0.97" pitch="F5" vel="0.8" />
+  <note time="3" dur="0.97" pitch="E5" vel="0.74" />
+  <note time="4" dur="1.94" pitch="D5" vel="0.8" />
+  <note time="6" dur="0.97" pitch="C5" vel="0.72" />
+  <note time="7" dur="0.873" pitch="A4" vel="0.68" />
+  <note time="8" dur="0.97" pitch="Bb4" vel="0.74" />
+  <note time="9" dur="0.97" pitch="D5" vel="0.78" />
+  <note time="10" dur="0.97" pitch="F5" vel="0.82" />
+  <note time="11" dur="0.97" pitch="G5" vel="0.8" />
+  <note time="12" dur="1.94" pitch="A5" vel="0.86" />
+  <note time="14" dur="1.94" pitch="F5" vel="0.78" />
+  <note time="16" dur="0.97" pitch="A4" vel="0.7" />
+  <note time="17" dur="0.97" pitch="D5" vel="0.76" />
+  <note time="18" dur="0.97" pitch="F5" vel="0.8" />
+  <note time="19" dur="0.97" pitch="A5" vel="0.84" />
+  <note time="20" dur="1.94" pitch="G5" vel="0.8" />
+  <note time="22" dur="0.97" pitch="F5" vel="0.76" />
+  <note time="23" dur="0.97" pitch="E5" vel="0.72" />
+  <note time="24" dur="0.97" pitch="E5" vel="0.74" />
+  <note time="25" dur="0.97" pitch="D5" vel="0.72" />
+  <note time="26" dur="0.97" pitch="C5" vel="0.7" />
+  <note time="27" dur="0.97" pitch="Bb4" vel="0.68" />
+  <note time="28" dur="2.91" pitch="A4" vel="0.72" />
+  <note time="31" dur="0.873" pitch="A4" vel="0.6" />
+</track>

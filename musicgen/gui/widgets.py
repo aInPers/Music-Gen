@@ -425,6 +425,101 @@ class MiniSlider(tk.Canvas):
                          font=theme.font(8))
 
 
+class Dropdown(tk.Canvas):
+    """扁平下拉框：左边当前值、右边小三角，点开是深色菜单。"""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        items: list[tuple[str, str]] | None = None,
+        value: str = "",
+        command: Callable[[str], None] | None = None,
+        background: str | None = None,
+        height: int = 21,
+    ) -> None:
+        bg = background or T["panel"]
+        super().__init__(master, height=height, bg=bg, highlightthickness=0, bd=0,
+                         cursor="hand2")
+        self._items: list[tuple[str, str]] = list(items or [])  # (值, 显示文本)
+        self._value = value
+        self._command = command
+        self._enabled = True
+        self._hover = False
+        self._menu: tk.Menu | None = None
+        self.bind("<Configure>", lambda _e: self._render())
+        self.bind("<Button-1>", self._open)
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self._render()
+
+    # ---- API ----------------------------------------------------------
+    def get(self) -> str:
+        return self._value
+
+    def set(self, value: str, notify: bool = False) -> None:
+        self._value = value
+        self._render()
+        if notify and self._command:
+            self._command(value)
+
+    def set_items(self, items: list[tuple[str, str]]) -> None:
+        self._items = list(items)
+        self._render()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        self.configure(cursor="hand2" if enabled else "arrow")
+        self._render()
+
+    # ---- 交互 ---------------------------------------------------------
+    def _on_enter(self, _event=None) -> None:
+        self._hover = True
+        self._render()
+
+    def _on_leave(self, _event=None) -> None:
+        self._hover = False
+        self._render()
+
+    def _label(self, value: str) -> str:
+        for key, text in self._items:
+            if key == value:
+                return text
+        return value or "—"
+
+    def _open(self, _event=None) -> None:
+        if not self._enabled or not self._items:
+            return
+        menu = theme.make_menu(self)
+        for key, text in self._items:
+            menu.add_command(
+                label=("● " if key == self._value else "   ") + text,
+                command=lambda k=key: self.set(k, notify=True),
+            )
+        self._menu = menu
+        try:
+            menu.tk_popup(self.winfo_rootx(), self.winfo_rooty() + self.winfo_height())
+        finally:
+            menu.grab_release()
+
+    # ---- 绘制 ---------------------------------------------------------
+    def _render(self) -> None:
+        self.delete("all")
+        width, height = self.winfo_width(), self.winfo_height()
+        if width < 12 or height < 8:
+            return
+        self.configure(bg=T["panel"])
+        fill = T["editor"] if self._enabled else T["panel_alt"]
+        border = T["accent"] if (self._hover and self._enabled) else T["border"]
+        self.create_rectangle(1, 1, width - 1, height - 1, fill=fill, outline=border)
+        self.create_text(7, height / 2, anchor="w", text=self._label(self._value),
+                         fill=T["text"] if self._enabled else T["text_faint"],
+                         font=theme.font(9))
+        cx = width - 10
+        self.create_polygon(cx - 4, height / 2 - 2, cx + 4, height / 2 - 2, cx, height / 2 + 3,
+                            fill=T["text_dim"] if self._enabled else T["text_faint"],
+                            outline="")
+
+
 class CheckBox(tk.Canvas):
     """VS 风格复选框。"""
 

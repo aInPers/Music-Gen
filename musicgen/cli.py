@@ -183,15 +183,30 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_samples_fetch(args: argparse.Namespace) -> int:
-    instruments = [args.instrument] if args.instrument else ["piano"]
+    instruments: list[str] = []
+    if args.all or not args.instrument:
+        instruments = list(fetch.SOURCES)
+    else:
+        for raw in args.instrument:
+            for part in raw.split(","):
+                key = fetch.resolve(part)
+                if part.strip() and key not in instruments:
+                    instruments.append(key)
     exit_code = 0
     for instrument in instruments:
         source = fetch.SOURCES.get(instrument)
         if source is None:
-            print(f"未知乐器：{instrument}（可选：{', '.join(fetch.SOURCES)}）", file=sys.stderr)
+            print(
+                "未知乐器："
+                + instrument
+                + "（可选："
+                + "、".join(f"{fetch.label(k)}({k})" for k in fetch.SOURCES)
+                + "）",
+                file=sys.stderr,
+            )
             exit_code = 1
             continue
-        print(f"下载 {source.title}")
+        print(f"下载 {fetch.display(instrument)} — {source.title}")
         print(f"  许可：{source.license}")
         print(f"  音域：{source.note_range_label or ''} 来源：{source.homepage}")
         done = {"n": 0}
@@ -223,8 +238,9 @@ def cmd_samples_list(args: argparse.Namespace) -> int:
     for key, source in fetch.SOURCES.items():
         have, want = fetch.instrument_status(key, args.cache_dir)
         state = "就绪" if have >= want else ("部分" if have else "未下载")
-        print(f"  {key:<8} {source.title}")
-        print(f"           采样 {have}/{want} [{state}] · {source.license}")
+        print(f"  {fetch.label(key):<5} {key:<8} {source.title}")
+        print(f"           采样 {have}/{want} [{state}] · 音域 {source.note_range_label}")
+        print(f"           {source.license}")
         print(f"           {source.homepage}")
     return 0
 
@@ -252,7 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""示例:
   python -m musicgen gui
   python -m musicgen render examples/demo/demo.musicproj -o out.wav
-  python -m musicgen samples fetch            # 下载钢琴音源
+  python -m musicgen samples fetch                    # 下载全部乐器音源
+  python -m musicgen samples fetch --instrument cello # 只下大提琴
 """,
     )
     parser.add_argument("-V", "--version", action="version", version=f"MusicGen {__version__}")
@@ -296,7 +313,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_samples = sub.add_parser("samples", help="音源管理与下载")
     samples_sub = p_samples.add_subparsers(dest="action", required=True)
     p_fetch = samples_sub.add_parser("fetch", help="下载乐器采样")
-    p_fetch.add_argument("--instrument", default=None, help="乐器名（默认 piano）")
+    p_fetch.add_argument(
+        "--instrument", action="append", default=None,
+        help="乐器名，可重复或逗号分隔（piano/cello/violin/trumpet，也认中文名）；"
+             "不给则下载全部",
+    )
+    p_fetch.add_argument("--all", action="store_true", help="下载全部已注册乐器")
     p_fetch.add_argument("--force", action="store_true", help="忽略缓存重新下载")
     add_cache(p_fetch)
     p_fetch.set_defaults(func=cmd_samples_fetch)

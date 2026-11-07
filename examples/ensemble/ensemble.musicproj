@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MusicGen 示例：弦乐三重奏 + 钢琴（8 小节 D 小调，76 BPM） -->
+<musicproj name="Trio in D minor" bpm="76" sampleRate="44100" beatsPerBar="4"
+           length="auto" tail="2.5s" masterGain="-1dB" normalize="true">
+
+  <!-- instrument 可写注册键（violin/cello/trumpet/piano）或中文名（小提琴/大提琴/小号/钢琴） -->
+  <track file="tracks/violin.track.xml"/>
+  <track file="tracks/cello.track.xml"/>
+  <track file="tracks/trumpet.track.xml"/>
+  <track file="tracks/piano.track.xml"/>
+</musicproj>
