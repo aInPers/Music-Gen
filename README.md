@@ -71,6 +71,8 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 | `samples fetch/list` | 下载/查看音源 |
 | `gui [proj]` | 启动界面 |
 
+完整参数表、真实输出、退出码与报错对照、批量脚本示例：[docs/CLI文档.md](docs/CLI文档.md)。
+
 ## 界面
 
 ![钢琴卷帘](docs/screenshot.png)
@@ -92,4 +94,5 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 ## 文档与测试
 
 - 格式规范、渲染管线细节、扩展新乐器的方法：[docs/项目文档.md](docs/项目文档.md)
+- 命令行完整手册（每个参数、退出码、常见报错怎么办）：[docs/CLI文档.md](docs/CLI文档.md)
 - 测试：`py -3 -m unittest discover -s tests -v`

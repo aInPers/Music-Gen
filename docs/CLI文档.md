@@ -1,0 +1,520 @@
+# MusicGen 命令行（CLI）手册
+
+> 适用于 MusicGen 1.5.0。`python -m musicgen --version` 可确认版本。
+> 工程格式、渲染管线与扩展方法见 [项目文档](项目文档.md)；本文只讲命令怎么用、参数什么含义、出错怎么办。
+
+**目录**：[调用方式](#1-三种调用方式) · [命令总览](#2-命令总览) · [退出码与环境变量](#3-退出码与环境变量) ·
+[render](#4-render--渲染成-wav) · [validate](#5-validate--只校验) · [info](#6-info--工程概要) ·
+[init](#7-init--生成新工程) · [samples fetch](#8-samples-fetch--下载音源) · [samples list](#9-samples-list--查看音源状态) ·
+[gui](#10-gui--图形界面) · [工作流](#11-常见工作流) · [报错对照](#12-提示信息对照表) · [CLI 与 GUI](#13-与-gui-的能力对照) · [速查卡](#14-速查卡)
+
+---
+
+## 1. 三种调用方式
+
+```bat
+python -m musicgen <命令> [参数]      :: 通用写法
+py -3 -m musicgen <命令> [参数]       :: 指定用 Python 3.14（GUI 必须用这个）
+MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
+```
+
+| 方式 | 说明 |
+| --- | --- |
+| `python -m musicgen` | 需要当前解释器装了 `numpy` + `soundfile`。渲染、校验、下载只用这两个依赖。 |
+| `py -3 -m musicgen` | 本机默认的 `python`（3.13）没有编译 `tkinter`，**开界面必须用 `py -3`**；渲染也用同一个解释器更省心。 |
+| `MusicGen-CLI.bat` | 会自动先试 `py -3`，失败再退回 `python`；并且 `cd` 到仓库根目录，所以**相对路径按仓库根目录解析**，返回码原样透传。 |
+
+> `MusicGen.bat` 不是命令行包装：它用 `pythonw` 起界面并立刻返回（无控制台窗口），
+> 参数直接传给 `gui`，所以 `MusicGen.bat examples\demo\demo.musicproj` 等于「开界面并打开这个工程」。
+> 要拿渲染结果，用前三行里的任意一种。
+
+---
+
+## 2. 命令总览
+
+| 命令 | 作用 | 是否需要音源 |
+| --- | --- | --- |
+| [`render`](#4-render--渲染成-wav) | 把工程渲染成 WAV | 缓存齐全时不需要联网，缺失则用合成器兜底 |
+| [`validate`](#5-validate--只校验) | 只解析校验，列出全部错误与警告 | 不需要 |
+| [`info`](#6-info--工程概要) | 打印工程概要（速度、时长、每轨参数） | 不需要 |
+| [`init`](#7-init--生成新工程) | 按模板生成一个新工程 | 不需要 |
+| [`samples fetch`](#8-samples-fetch--下载音源) | 下载乐器采样（多镜像并发） | 联网 |
+| [`samples list`](#9-samples-list--查看音源状态) | 查看缓存里各乐器齐不齐 | 不需要 |
+| [`gui`](#10-gui--图形界面) | 启动桌面界面 | 打开工程时按需 |
+
+全局选项：
+
+| 选项 | 说明 |
+| --- | --- |
+| `-h`, `--help` | 显示帮助；子命令也一样：`python -m musicgen render -h` |
+| `-V`, `--version` | 打印 `MusicGen 1.5.0` |
+
+---
+
+## 3. 退出码与环境变量
+
+### 3.1 退出码
+
+| 码 | 含义 | 典型场景 |
+| --- | --- | --- |
+| `0` | 成功（`validate` 允许带警告） | — |
+| `1` | 参数或环境问题 | 乐器名不认识、下载失败、`init` 目标已存在、`init` 参数越界、GUI 起不来 |
+| `2` | 工程文件本身有错 | `render` / `validate` / `info` 解析失败 |
+| `3` | 渲染阶段失败 | 采样文件读不出来等 I/O 问题 |
+| `130` | 被 `Ctrl+C` 中断 | 长渲染中途取消 |
+
+`render` 遇到未预料的异常时，会先打印一行 `渲染失败：<异常类型>: <说明>`，再把原始 traceback 抛出来（方便报 bug），此时退出码由 Python 决定（通常为 `1`）。
+
+### 3.2 环境变量
+
+| 变量 | 作用 | 默认 |
+| --- | --- | --- |
+| `MUSICGEN_SAMPLES` | 音源缓存根目录 | 仓库下 `samples_cache/`；非仓库布局时用 `~/.musicgen/samples` |
+| `MUSICGEN_UI` | 界面布局文件路径（只有 GUI 用） | `~/.musicgen/ui.json` |
+
+优先级：命令行 `--cache-dir` > `MUSICGEN_SAMPLES` > 默认目录。
+
+```bat
+set MUSICGEN_SAMPLES=D:\audio\musicgen-samples
+python -m musicgen samples list
+```
+
+---
+
+## 4. `render` — 渲染成 WAV
+
+```
+python -m musicgen render <工程> [-o 输出] [--bits 16|24|32] [--float32]
+                          [--no-normalize] [--no-dither] [--quiet] [--cache-dir 目录]
+```
+
+### 4.1 参数
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `project` | 必填 | `*.musicproj` 路径，相对当前目录 |
+| `-o`, `--output` | `<工程名>.wav`，**与工程同目录** | 输出路径。给的是目录（或以 `/`、`\` 结尾）则自动补成 `<目录>/<工程名>.wav`；父目录不存在会自动创建 |
+| `--bits` | `24` | 整数位深，可选 `16` / `24` / `32` |
+| `--float32` | 关 | 写 32bit 浮点 WAV。**优先级高于 `--bits`**，且浮点不抖动 |
+| `--no-normalize` | 关 | 强制关闭峰值归一化（工程里写了 `normalize="true"` 也不生效） |
+| `--no-dither` | 关 | 关闭 TPDF 抖动（只影响整数位深） |
+| `--quiet` | 关 | 不显示进度条；摘要与统计照常打印 |
+| `--cache-dir` | 见 §3.2 | 音源缓存目录 |
+
+### 4.2 输出往哪走
+
+**stdout**：工程摘要、完成信息、每轨统计 → 可以直接重定向成报告。
+**stderr**：工程警告、渲染警告（前缀 `!`）、进度条、所有错误 → 出错时不会污染 stdout。
+
+```bat
+rem 只看结果，进度和警告另存
+python -m musicgen render examples\demo\demo.musicproj -o out.wav > render.log 2> render.err
+```
+
+进度条：终端里单行刷新 `[██████░░░░] 22.5% 混响：Chords`；重定向到文件时退化为每 25% 一行。
+音轨阶段占 0–90%，母带 92%，收尾 100%。`--quiet` 只是关掉这个进度，不影响任何结果。
+
+### 4.3 完整输出范例
+
+```bat
+> python -m musicgen render examples\demo\demo.musicproj -o out\demo.wav
+
+渲染 Nocturne in A minor → out\demo.wav
+  4 条音轨 | 84BPM | 44100Hz | 时长 0:24.79
+完成：out\demo.wav
+  时长 0:24.79 | 峰值 -1.0dBFS | RMS -19.8dBFS | 6.3MB | 位深 24
+  音符事件 126 个 | 耗时 2.2s (11.2× 实时)
+    · Chords [piano] 音符 16 峰值 0.631
+    · Ostinato [piano] 音符 70 峰值 0.254
+    · Bass [piano] 音符 16 峰值 0.290
+    · Melody [piano] 音符 24 峰值 0.615
+```
+
+各项含义：
+
+| 行 | 说明 |
+| --- | --- |
+| `时长 0:24.79` | 含 `tail` 余韵的实际文件长度 |
+| `峰值 -1.0dBFS` | 归一化后的峰值；目标是 −1dBFS |
+| `RMS -19.8dBFS` | 整体响度参考，纯钢琴独奏通常在 −20dBFS 上下 |
+| `音符事件 126 个` | **已展开循环**后实际触发的音符数（`Ostinato` 只有 8 个 `<note>`，循环后变 70 个） |
+| `11.2× 实时` | 渲染速度，示例工程约 10–12× |
+| `峰值 0.631` | 单轨在总线上的贡献峰值（0–1 线性） |
+
+### 4.4 位深怎么选
+
+| 输出 | 命令 | 24.79s 体积 | 用途 |
+| --- | --- | --- | --- |
+| 16bit | `--bits 16` | 4.2MB | 分享、普通播放器、视频配乐 |
+| 24bit | 默认 | 6.3MB | 归档、后期处理 |
+| 32bit int | `--bits 32` | 约 8.4MB | 极少用，整数位深超过 24bit 没有实际收益 |
+| 32bit float | `--float32` | 约 8.4MB | 送进 DAW 再混音，避免二次量化 |
+
+体积公式：`采样率 × 2 声道 × 位深 ÷ 8`（字节/秒）。44.1kHz/24bit ≈ 264KB/s。
+
+### 4.5 归一化与削波
+
+* 默认跟随工程里的 `normalize`（默认 `true`）：渲染完把峰值拉到 −1dBFS，多轨混音不会爆。
+* `--no-normalize` 保留 `masterGain` 后的原始电平。若峰值仍超过 0dBFS，会**自动硬削波**并给出警告——这是保护，不是可选项：
+
+  ```
+    ! 峰值 +2.3dBFS 已超出 0dB，已做削波保护
+  ```
+* 想留动态又不想削波，改工程里的 `masterGain`（例如 `-3dB`），别关归一化。
+
+### 4.6 音源缺失会怎样
+
+不会失败。未注册乐器、未下载采样、单个采样损坏都会退回内置合成器，并在 stderr 警告：
+
+```
+  ! 未注册的乐器 'kazoo'，使用内置合成器。已支持: 钢琴(piano)、大提琴(cello)、小提琴(violin)、小号(trumpet)
+  ! 大提琴的采样尚未下载，本次使用内置合成器。运行 `python -m musicgen samples fetch --instrument cello` …
+  ! 乐器 'cello' 的采样音域为 C2–C6，B1 超出范围，该音改用内置合成器
+```
+
+第二种是整件乐器都还没下采样（`samples list` 会显示「未下载」）；第三种是音高跑出了乐器的采样音域
+（大提琴 C2–C6、小提琴 G3–C7、小号 E3–C6、钢琴 A0–C8），改音高或整体 `transpose` 即可。
+想要真实音色，先跑 `samples fetch`。
+
+---
+
+## 5. `validate` — 只校验
+
+```
+python -m musicgen validate <工程>
+```
+
+只解析、不渲染、不碰音源，所以**可以放心放进 CI**。遇到错误不会中断，一次把全部问题列完。
+
+| 情况 | 输出 | 退出码 |
+| --- | --- | --- |
+| 完全正确 | `校验通过：demo.musicproj` / `没有警告` | `0` |
+| 只有警告 | `校验通过：…` + 警告条数与明细 | `0` |
+| 有错误 | `校验失败（N 个问题）：` + 明细 | `2` |
+
+行格式：`级别 | 位置: 说明`。级别是 `错误` / `警告`，位置可能是工程文件、音轨文件名，或 `<音轨> 第 N 个 <note>`。
+
+```bat
+> python -m musicgen validate bad.musicproj
+
+校验失败（5 个问题）：
+  错误 | bad.musicproj: bpm 超出合理范围 5-600: 0
+  警告 | lead.track.xml: bpm 无效: bpm 必须大于 0
+  错误 | lead.track.xml 第 1 个 <note>: dur 必须大于 0
+  警告 | tracks/lead.track.xml: gain 无效: 增益 不是有效数字: 'loud'
+  错误 | bad.musicproj: 音轨文件不存在: tracks/missing.track.xml
+```
+
+---
+
+## 6. `info` — 工程概要
+
+```
+python -m musicgen info <工程>
+```
+
+不渲染、不下载，纯读文件，适合写脚本时快速确认「这个工程到底几拍、几轨、什么乐器」。
+
+```bat
+> python -m musicgen info examples\demo\demo.musicproj
+
+工程: Nocturne in A minor
+文件: F:\Music-Gen\examples\demo\demo.musicproj
+BPM: 84 | 采样率: 44100 | 拍号: 4/4 | 时长: 24.79s | 母带: -1dB | 归一化: 开
+音轨: 4
+  1. Chords [piano] 音符 16 | 84BPM | -4dB | pan -0.08 | 混响 0.28
+  2. Ostinato [piano] 音符 8 | 84BPM | -4dB | pan -0.28 | 混响 0.18 | 循环 4拍×无限
+  3. Bass [piano] 音符 16 | 84BPM | -5dB | pan -0.05 | 混响 0.10
+  4. Melody [piano] 音符 24 | 84BPM | -3dB | pan +0.16 | 混响 0.32
+```
+
+* `音符 8` 是文件里写的原始音符数（未展开循环），和 `render` 输出的「音符事件」不是一回事。
+* `母带: -1dB` 就是工程里的 `masterGain`；归一化目标固定为 −1dBFS，不随它变。`归一化: 开/关` 对应 `normalize`。
+* 时长与 `render` 报的一致（含 `tail`）。
+* 工程有错时退出码 `2`，不会打印半截信息。
+
+---
+
+## 7. `init` — 生成新工程
+
+```
+python -m musicgen init <目录> [--name 名字] [--force]
+                    [--bpm 100] [--sample-rate 44100]
+                    [--beats-per-bar 2|3|4|6] [--template demo|empty]
+```
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `path` | 必填 | 工程目录，**不存在会自动创建**（含 `tracks/`） |
+| `--name` | 目录名 | 工程**显示名**（写进 `name` 属性），不改文件名 |
+| `--force` | 关 | 目标 `<目录>/<目录名>.musicproj` 已存在时覆盖 |
+| `--bpm` | `100` | 速度，范围 5–600 |
+| `--sample-rate` | `44100` | 可选 22050 / 32000 / 44100 / 48000 / 88200 / 96000 |
+| `--beats-per-bar` | `4` | 每小节拍数，可选 2 / 3 / 4 / 6 |
+| `--template` | `demo` | `demo`＝两轨示例（旋律 + 循环音型）；`empty`＝一条空音轨，注释里写了音符语法 |
+
+文件名取自**目录名**：`init MySong` 得到 `MySong/MySong.musicproj`。想改名就改目录名，或用 `--name` 只改显示名。
+
+```bat
+> python -m musicgen init songs\MySong --bpm 96 --template empty
+
+已创建工程：songs\MySong\MySong.musicproj
+下一步：python -m musicgen render songs\MySong\MySong.musicproj
+```
+
+生成结构：
+
+```
+demo 模板                        empty 模板
+MySong/                          MySong/
+├─ MySong.musicproj              ├─ MySong.musicproj
+└─ tracks/                       └─ tracks/
+   ├─ lead.track.xml                └─ track1.track.xml
+   └─ pad.track.xml
+```
+
+失败情形：目标已存在 → `目标已存在：…（加 --force 可覆盖）`，退出码 `1`；`--bpm 9999` → `参数无效：速度超出范围 5-600：9999.0`，退出码 `1`。
+
+---
+
+## 8. `samples fetch` — 下载音源
+
+```
+python -m musicgen samples fetch [--instrument 名字]... [--all] [--force] [--cache-dir 目录]
+```
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--instrument` | 不给就下载全部 | 乐器名，**可重复**也可**逗号分隔**；认注册键也认中文名/别名 |
+| `--all` | 关 | 显式下载全部已注册乐器（等价于不给 `--instrument`） |
+| `--force` | 关 | 忽略已有文件重新下载 |
+| `--cache-dir` | 见 §3.2 | 缓存根目录，实际写到 `<缓存>/<乐器>/` |
+
+可用的名字：
+
+| 注册键 | 中文名 | 其他别名 |
+| --- | --- | --- |
+| `piano` | 钢琴 | `grand piano` |
+| `violin` | 小提琴 | `strings` |
+| `cello` | 大提琴 | `violoncello` |
+| `trumpet` | 小号 | — |
+
+```bat
+python -m musicgen samples fetch                        :: 四件全下（约 6MB）
+python -m musicgen samples fetch --instrument cello      :: 只下大提琴
+python -m musicgen samples fetch --instrument 小提琴,小号 :: 中文名、逗号分隔
+python -m musicgen samples fetch --instrument piano --instrument cello --force :: 重下
+```
+
+下载行为：
+
+* 8 线程并发，每个文件**依次尝试 4 个镜像**（jsDelivr → fastly → gcore → raw.githubusercontent），单镜像 20s 超时后换下一个；
+* 整体 300s 预算，超时后不再提交新任务；
+* 已存在且大于 512 字节的文件直接跳过，所以重复执行几乎不花钱（缓存命中时 `耗时 0.0s`）；
+* 每个乐器下载完会在目录里写 `manifest.json`（来源、许可、文件清单、时间）。
+
+输出范例（缓存已满）：
+
+```bat
+> python -m musicgen samples fetch --instrument 大提琴,violin
+
+下载 大提琴 (cello) — FluidR3 GM — Cello
+  许可：FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）
+  音域：C2–C6（大提琴常用音域） 来源：https://github.com/gleitz/midi-js-soundfonts
+乐器: 大提琴 (cello)
+缓存目录: F:\Music-Gen\samples_cache\cello
+总计 49 个采样 | 新下载 0 | 已存在 49 | 失败 0 | 耗时 0.0s
+下载 小提琴 (violin) — FluidR3 GM — Violin
+  ...
+总计 42 个采样 | 新下载 0 | 已存在 42 | 失败 0 | 耗时 0.0s
+```
+
+出错处理：
+
+* 乐器名不认识 → stderr `未知乐器：kazoo（可选：钢琴(piano)、大提琴(cello)、小提琴(violin)、小号(trumpet)）`，退出码 `1`，其他乐器继续下；
+* 部分采样失败 → 报告里列出 `失败的音符: …`，退出码 `1`，**已下载的仍然可用**（缺的那几个音渲染时会走合成器），重跑一次通常就补齐了。
+
+---
+
+## 9. `samples list` — 查看音源状态
+
+```
+python -m musicgen samples list [--cache-dir 目录]
+```
+
+```bat
+> python -m musicgen samples list
+
+缓存目录：F:\Music-Gen\samples_cache
+  钢琴    piano    FluidR3 GM — Acoustic Grand Piano
+           采样 88/88 [就绪] · 音域 A0–C8（88 键全覆盖）
+           FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）
+           https://github.com/gleitz/midi-js-soundfonts
+  大提琴   cello    FluidR3 GM — Cello
+           采样 49/49 [就绪] · 音域 C2–C6（大提琴常用音域）
+           ...
+```
+
+状态含义：`就绪`（齐全）、`部分`（下过但缺文件，再跑一次 `fetch` 会补）、`未下载`。
+
+---
+
+## 10. `gui` — 图形界面
+
+```
+python -m musicgen gui [工程]
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `project` | 可选，启动时直接打开这个工程；省略则停在空工作区，用 `Ctrl+O` 打开或 `Ctrl+N` 新建 |
+
+* 前台阻塞，直到关闭窗口，退出码即窗口的返回码。
+* 解释器没有 `tkinter` 时会提示换解释器并返回 `1`：
+
+  ```
+  无法启动图形界面（缺少 tkinter？）：No module named '_tkinter'
+  提示：用带 tkinter 的解释器运行，例如 `py -3 -m musicgen gui`
+  ```
+
+界面操作、快捷键、停靠布局见[项目文档 §11](项目文档.md#11-gui-使用)。
+
+---
+
+## 11. 常见工作流
+
+**第一次跑通**
+
+```bat
+py -3 -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+py -3 -m musicgen samples fetch
+py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
+```
+
+**先校验再渲染（改完 XML 的习惯动作）**
+
+```bat
+python -m musicgen validate songs\MySong\MySong.musicproj && python -m musicgen render songs\MySong\MySong.musicproj
+```
+
+**批量渲染整个目录**
+
+```bat
+for /r songs %f in (*.musicproj) do python -m musicgen render "%f" -o "out\%~nf.wav" --quiet
+```
+
+> 上面是**命令行里直接敲**的写法（`%f`）；写进 `.bat` 文件要改成 `%%f`。
+
+```bash
+# Git Bash / Linux
+for p in songs/*/*.musicproj; do
+  python -m musicgen render "$p" -o "out/$(basename "${p%.musicproj}").wav" --quiet || echo "失败: $p"
+done
+```
+
+**离线渲染**：`render` 全程不联网——缓存里有采样就用，没有就用合成器。所以先在一台有网的机器跑 `samples fetch`，把整个 `samples_cache/` 拷过去（或用 `--cache-dir` 指过去）即可。
+
+**交付不同格式**
+
+```bat
+python -m musicgen render song.musicproj -o dist\song-16.wav --bits 16   :: 分享
+python -m musicgen render song.musicproj -o dist\song-24.wav            :: 归档
+python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后续混音
+```
+
+**CI 里守住工程不会坏**
+
+```yaml
+# GitHub Actions 片段
+- name: 校验全部工程
+  run: |
+    for p in $(git ls-files '*.musicproj'); do
+      python -m musicgen validate "$p" || exit 1
+    done
+```
+
+---
+
+## 12. 提示信息对照表
+
+### 12.1 工程解析（退出码 2）
+
+| 提示 | 原因 | 处理 |
+| --- | --- | --- |
+| `文件不存在` | 路径写错 / 相对路径基准不对（`.bat` 以仓库根目录为基准） | 用绝对路径，或先 `cd` 到工程目录 |
+| `XML 解析失败: not well-formed …` | XML 语法错（未闭合标签、属性引号、`&` 没转义） | 按报的行列号修 |
+| `音轨文件不存在: tracks/x.track.xml` | `file` 属性的相对路径错了 | 路径是**相对工程目录**，不是当前目录 |
+| `bpm 超出合理范围 5-600` | 速度填错 | 改 5–600 |
+| `dur 必须大于 0` | 音符时值为 0 / 负数 | 至少 `1/16` |
+| `无法识别的音名: H9` | 音名拼错 | 用 `C4` / `C#4` / `Db4` / MIDI 数字 `60` |
+| `缺少 pitch 属性` | `<note>` 没写 `pitch` | 补上音名 |
+| `音高超出 0-127` | 移调后越界 | 降 `transpose` |
+| `根节点必须是 <musicproj>` | 文件不是工程文件 | 检查打开的是不是 `*.musicproj` |
+| `工程里没有任何 <track>` | 一条音轨都没引用 | 加 `<track file="…"/>` |
+| `缺少 file 属性` | `<track>` 没写 `file` | 补上音轨文件路径 |
+
+### 12.2 忽略即警告（退出码 0，但值没生效）
+
+| 提示 | 原因 | 处理 |
+| --- | --- | --- |
+| `gain 无效: 增益 不是有效数字: 'loud'` | `gain` 得是 `-3dB`、`-3` 或 `-3db` | 改成带单位或纯数字 |
+| `pan 无效: …` | `pan` 不是数字 | −1…+1 |
+| `属性 reverb 无效，已用默认值: …` | 数值属性写成了非法值 | 改数字（`reverb` 0–1） |
+| `忽略未知节点 <x>` | 音轨文件里出现了 `<note>` 以外的标签 | 删掉，或改成 XML 注释 |
+| `bpm 无效: bpm 必须大于 0` | 音轨级 `bpm` ≤ 0 | 删掉该属性即跟随工程 |
+| `非常用采样率 22050，仍会使用` | `sampleRate` 不在推荐表里 | 一般 44100 或 48000 |
+| `N 个音符起点超出循环周期 X 拍，不会被播放` | `loopLen` 比内容短 | 加大 `loopLen` 或把音符挪回周期内 |
+
+### 12.3 渲染警告（stderr，前缀 `!`）
+
+| 提示 | 含义 | 处理 |
+| --- | --- | --- |
+| `未注册的乐器 'x'，使用内置合成器。已支持: …` | 乐器名不在注册表 | 改成四件之一，或按[项目文档 §8.2](项目文档.md#82-新增一个乐器)扩展 |
+| `大提琴的采样尚未下载，本次使用内置合成器。运行 …` | 这件乐器一次都没下过 | `python -m musicgen samples fetch --instrument cello` |
+| `乐器 'x' 的采样音域为 …，B1 超出范围，该音改用内置合成器` | 音高超出采样范围 | 移调 / 换音区 |
+| `没有可渲染的音轨（全部静音或为空）` | 全静音、全空轨，或独奏轨为空 | 检查 `mute` / `solo` |
+| `峰值 +2.3dBFS 已超出 0dB，已做削波保护` | 关了归一化又太响 | 降 `masterGain`，或去掉 `--no-normalize` |
+
+---
+
+## 13. 与 GUI 的能力对照
+
+| 能力 | CLI | GUI |
+| --- | --- | --- |
+| 渲染 WAV | `render` | 「渲染」按钮 / `Ctrl+R` |
+| 试听 | 导出后用播放器打开 | 传输条直接播（`空格`） |
+| 新建工程 | `init` | `Ctrl+N` 向导（含浏览目录） |
+| 改工程参数 | 编辑 XML | 属性面板 / 音符面板，应用即写回 |
+| 校验 | `validate` | 载入时自动校验，问题进输出窗口 |
+| 下载音源 | `samples fetch` | 「渲染 → 下载音源」按工程用到的乐器批量下 |
+| 批量 / 自动化 | 适合 | 不适合 |
+
+一句话：**批量、CI、无桌面环境用 CLI；调音、试听、逐个音符微调用 GUI**。两者读写同一套 XML，可以混着用。
+
+---
+
+## 14. 速查卡
+
+```bat
+:: 看版本 / 帮助
+python -m musicgen -V
+python -m musicgen render -h
+
+:: 建工程
+python -m musicgen init songs\Song --bpm 92 --template demo
+
+:: 校验 / 看概要
+python -m musicgen validate songs\Song\Song.musicproj
+python -m musicgen info songs\Song\Song.musicproj
+
+:: 渲（默认 24bit，输出到目录时自动用工程名）
+python -m musicgen render songs\Song\Song.musicproj -o out\song.wav
+python -m musicgen render songs\Song\Song.musicproj -o out\ --bits 16 --quiet
+
+:: 音源
+python -m musicgen samples list
+python -m musicgen samples fetch --instrument 小提琴,cello
+
+:: 界面
+py -3 -m musicgen gui songs\Song\Song.musicproj
+```

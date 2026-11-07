@@ -177,6 +177,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     except FileExistsError as exc:
         print(f"{exc}（加 --force 可覆盖）", file=sys.stderr)
         return 1
+    except ValueError as exc:
+        print(f"参数无效：{exc}", file=sys.stderr)
+        return 1
     print(f"已创建工程：{project_file}")
     print("下一步：python -m musicgen render " + str(project_file))
     return 0
