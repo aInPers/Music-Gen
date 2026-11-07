@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .core.project import ProjectError, describe, load_project
+from .core.project import ProjectError, create_project, describe, load_project
 from .core.render import render_project
 from .core.wavio import write_wav
 from .samples import fetch
@@ -167,51 +167,12 @@ def cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
-_TEMPLATE_PROJECT = """<?xml version="1.0" encoding="UTF-8"?>
-<musicproj name="{name}" bpm="100" sampleRate="44100" length="auto"
-           masterGain="-1dB" normalize="true">
-  <!-- 每条音轨对应 tracks/ 下的一个文件 -->
-  <track file="tracks/lead.track.xml"/>
-  <track file="tracks/pad.track.xml" gain="-3dB" pan="0.15"/>
-</musicproj>
-"""
-
-_TEMPLATE_LEAD = """<?xml version="1.0" encoding="UTF-8"?>
-<track name="Lead" instrument="piano" gain="-2dB" pan="0" reverb="0.18">
-  <!-- 时值单位是“拍”，支持 1/4 这种分数写法 -->
-  <note time="0"  dur="0.5" pitch="E5"      vel="0.78"/>
-  <note time="0.5" dur="0.5" pitch="G5"     vel="0.70"/>
-  <note time="1"  dur="1"   pitch="C6,E5,G5" vel="0.72"/>
-  <note time="2"  dur="0.5" pitch="B5"      vel="0.66"/>
-  <note time="2.5" dur="0.5" pitch="G5"     vel="0.62"/>
-  <note time="3"  dur="1"   pitch="A5,E5,C5" vel="0.70"/>
-</track>
-"""
-
-_TEMPLATE_PAD = """<?xml version="1.0" encoding="UTF-8"?>
-<track name="Pad" instrument="piano" loop="true" loopLen="4" gain="-6dB"
-       pan="-0.2" reverb="0.35">
-  <!-- loop=true 的音轨会在工程时长内不断重复，每 4 拍一轮 -->
-  <note time="0"    dur="3.5" pitch="C3,G3"  vel="0.42"/>
-  <note time="0"    dur="0.4" pitch="C4"     vel="0.34"/>
-  <note time="0.95" dur="0.4" pitch="C4"     vel="0.30"/>
-  <note time="2.5"  dur="0.4" pitch="C4"     vel="0.32"/>
-  <note time="3.45" dur="0.4" pitch="D4"     vel="0.28"/>
-</track>
-"""
-
-
 def cmd_init(args: argparse.Namespace) -> int:
-    target = Path(args.path)
-    name = args.name or target.name or "新工程"
-    project_file = target / f"{target.name or 'demo'}.musicproj"
-    if project_file.exists() and not args.force:
-        print(f"目标已存在：{project_file}（加 --force 可覆盖）", file=sys.stderr)
+    try:
+        project_file = create_project(Path(args.path), args.name, force=args.force)
+    except FileExistsError as exc:
+        print(f"{exc}（加 --force 可覆盖）", file=sys.stderr)
         return 1
-    (target / "tracks").mkdir(parents=True, exist_ok=True)
-    project_file.write_text(_TEMPLATE_PROJECT.format(name=name), encoding="utf-8")
-    (target / "tracks" / "lead.track.xml").write_text(_TEMPLATE_LEAD, encoding="utf-8")
-    (target / "tracks" / "pad.track.xml").write_text(_TEMPLATE_PAD, encoding="utf-8")
     print(f"已创建工程：{project_file}")
     print("下一步：python -m musicgen render " + str(project_file))
     return 0

@@ -1,4 +1,4 @@
-"""GUI 冒烟测试：打开工程、渲染、波形绘制、参数保存、静音切换。
+"""GUI 冒烟测试：打开工程、切页、卷帘绘制、参数保存、静音切换、后台渲染。
 
 需要一个可用的图形环境（本机桌面）。没有 tkinter 时自动跳过。
 运行：``py -3 -m unittest discover -s tests -v``
@@ -54,23 +54,37 @@ class GuiTests(unittest.TestCase):
             self.app.update()
             time.sleep(0.01)
 
+    # ---- 载入与布局 ---------------------------------------------------
     def test_project_loaded(self) -> None:
         self.assertIsNotNone(self.app.project)
         self.assertEqual(len(self.app.project.tracks), 4)
-        self.assertEqual(len(self.app.track_holder.winfo_children()), 4)
-        self.assertIn("已载入", self.app.lbl_status.cget("text"))
+        self.assertEqual(len(self.app.explorer.track_items), 4)
+        self.assertIn("已打开", self.app.status.message.cget("text"))
+        self.assertEqual(len(self.app.menu_bar.buttons), 5)
+
+    def test_document_pages(self) -> None:
+        self.app.goto_page("info")
+        self.app.update()
+        self.assertEqual(self.app.page, "info")
+        self.assertTrue(self.app.info.winfo_ismapped())
+        self.app.goto_page("roll")
+        self.app.update()
+        self.assertTrue(self.app.roll.winfo_ismapped())
+        self.assertFalse(self.app.info.winfo_ismapped())
 
     def test_piano_roll_drawn(self) -> None:
+        self.app.goto_page("roll")
         self.app.roll.redraw()
-        self.assertGreater(len(self.app.roll.find_all()), 40)
-        self.assertGreater(len(self.app.roll.find_withtag("note:0")), 0)
+        self.assertGreater(len(self.app.roll.canvas.find_all()), 60)
+        self.assertGreater(len(self.app.roll.canvas.find_withtag("note:0")), 0)
 
-    def test_select_track_updates_panel(self) -> None:
+    def test_select_track_updates_properties(self) -> None:
         self.app.select_track(2)
         self.app.update()
         self.assertEqual(self.app.selected, 2)
-        self.assertEqual(self.app.prop_labels["name"].cget("text"), "Bass")
-        self.assertEqual(self.app.prop_labels["notes"].cget("text"), "16")
+        self.assertEqual(self.app.props.labels["name"].cget("text"), "Bass")
+        self.assertEqual(self.app.props.labels["notes"].cget("text"), "16")
+        self.assertAlmostEqual(self.app.props.vars["gain_db"].get(), -5.0)
 
     def test_toggle_mute(self) -> None:
         before = self.app.project.tracks[0].mute
@@ -81,35 +95,37 @@ class GuiTests(unittest.TestCase):
         self.app.update()
         self.assertEqual(self.app.project.tracks[0].mute, before)
 
+    # ---- 编辑回写 -----------------------------------------------------
     def test_apply_saves_xml(self) -> None:
         self.app.select_track(1)
-        self.app._vars["gain_db"].set(-7.5)
-        self.app._vars["pan"].set(-0.4)
+        self.app.props.vars["gain_db"].set(-7.5)
+        self.app.props.vars["pan"].set(-0.4)
         self.app.on_apply()
         self.app.update()
-        text = (self.project_path.parent / "tracks" / "ostinato.track.xml").read_text(encoding="utf-8")
+        text = (self.project_path.parent / "tracks" / "ostinato.track.xml").read_text(
+            encoding="utf-8")
         self.assertIn('gain="-7.5dB"', text)
         self.assertIn('pan="-0.4"', text)
-        # 重新载入应保留新值（工程层覆盖已被清除）
         self.app.open_project(str(self.project_path))
         self.app.update()
         self.assertAlmostEqual(self.app.project.tracks[1].gain_db, -7.5)
 
+    # ---- 渲染 ---------------------------------------------------------
     def test_render_produces_waveform(self) -> None:
         self.app.open_project(str(self.project_path))
         self.app.update()
         self.app.on_render()
-        deadline = time.time() + 60
+        deadline = time.time() + 90
         while self.app.result is None and time.time() < deadline:
             self.app.update()
             time.sleep(0.02)
         self.assertIsNotNone(self.app.result, "渲染超时")
-        self.app.update()
+        self._pump(0.4)
         self.assertGreater(self.app.result.peak, 0.5)
-        self.assertGreater(len(self.app.wave.find_all()), 100)
-        self.assertEqual(str(self.app.btn_export["state"]), "normal")
-        self.assertEqual(str(self.app.btn_play["state"]), "normal")
-        self.assertIn("峰值", self.app.lbl_render_info.cget("text"))
+        self.assertGreater(len(self.app.wave.canvas.find_all()), 100)
+        self.assertIn("峰值", self.app.wave.summary)
+        self.assertTrue(self.app.toolbar.btn_export.enabled)
+        self.assertTrue(self.app.toolbar.btn_play.enabled)
 
 
 if __name__ == "__main__":

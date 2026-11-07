@@ -524,3 +524,92 @@ def describe(project: Project) -> str:
     for warning in project.warnings:
         lines.append(f"  ! {warning}")
     return "\n".join(lines)
+
+
+def clear_track_overrides(project_path: Path, track_path: Path | None) -> bool:
+    """删除工程文件里针对某条音轨的参数覆盖，返回是否有改动。
+
+    GUI 保存音轨后调用：否则下次载入会被工程层的旧 gain/pan 覆盖回去。
+    用保留注释的解析器读写，避免破坏工程的注释。
+    """
+    if track_path is None or not Path(project_path).is_file():
+        return False
+    project_path = Path(project_path)
+    track_path = Path(track_path)
+    try:
+        relative = track_path.relative_to(project_path.parent).as_posix()
+    except ValueError:
+        import os
+
+        relative = os.path.relpath(track_path, project_path.parent).replace("\\", "/")
+
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    try:
+        tree = ET.parse(str(project_path), parser=parser)
+    except ET.ParseError:
+        return False
+
+    changed = False
+    for element in tree.getroot():
+        if element.tag != "track":
+            continue
+        file_attr = (element.get("file") or "").replace("\\", "/")
+        if file_attr == relative:
+            for attr in ("gain", "pan", "mute", "solo", "loop"):
+                if element.get(attr) is not None:
+                    del element.attrib[attr]
+                    changed = True
+    if changed:
+        tree.write(str(project_path), encoding="utf-8", xml_declaration=True)
+    return changed
+
+
+TEMPLATE_PROJECT = """<?xml version="1.0" encoding="UTF-8"?>
+<musicproj name="{name}" bpm="100" sampleRate="44100" length="auto"
+           masterGain="-1dB" normalize="true">
+  <!-- 每条音轨对应 tracks/ 下的一个文件 -->
+  <track file="tracks/lead.track.xml"/>
+  <track file="tracks/pad.track.xml" gain="-3dB" pan="0.15"/>
+</musicproj>
+"""
+
+TEMPLATE_LEAD = """<?xml version="1.0" encoding="UTF-8"?>
+<track name="Lead" instrument="piano" gain="-2dB" pan="0" reverb="0.18">
+  <!-- 时值单位是“拍”，支持 1/4 这种分数写法 -->
+  <note time="0"  dur="0.5" pitch="E5"      vel="0.78"/>
+  <note time="0.5" dur="0.5" pitch="G5"     vel="0.70"/>
+  <note time="1"  dur="1"   pitch="C6,E5,G5" vel="0.72"/>
+  <note time="2"  dur="0.5" pitch="B5"      vel="0.66"/>
+  <note time="2.5" dur="0.5" pitch="G5"     vel="0.62"/>
+  <note time="3"  dur="1"   pitch="A5,E5,C5" vel="0.70"/>
+</track>
+"""
+
+TEMPLATE_PAD = """<?xml version="1.0" encoding="UTF-8"?>
+<track name="Pad" instrument="piano" loop="true" loopLen="4" gain="-6dB"
+       pan="-0.2" reverb="0.35">
+  <!-- loop=true 的音轨会在工程时长内不断重复，每 4 拍一轮 -->
+  <note time="0"    dur="3.5" pitch="C3,G3"  vel="0.42"/>
+  <note time="0"    dur="0.4" pitch="C4"     vel="0.34"/>
+  <note time="0.95" dur="0.4" pitch="C4"     vel="0.30"/>
+  <note time="2.5"  dur="0.4" pitch="C4"     vel="0.32"/>
+  <note time="3.45" dur="0.4" pitch="D4"     vel="0.28"/>
+</track>
+"""
+
+
+
+
+def create_project(directory: Path, name: str | None = None, force: bool = False) -> Path:
+    """在 *directory* 下生成一个可直接渲染的示例工程，返回工程文件路径。"""
+    target = Path(directory)
+    project_name = name or target.name or "新工程"
+    slug = target.name or "demo"
+    project_file = target / f"{slug}.musicproj"
+    if project_file.exists() and not force:
+        raise FileExistsError(f"目标已存在：{project_file}")
+    (target / "tracks").mkdir(parents=True, exist_ok=True)
+    project_file.write_text(TEMPLATE_PROJECT.format(name=project_name), encoding="utf-8")
+    (target / "tracks" / "lead.track.xml").write_text(TEMPLATE_LEAD, encoding="utf-8")
+    (target / "tracks" / "pad.track.xml").write_text(TEMPLATE_PAD, encoding="utf-8")
+    return project_file
