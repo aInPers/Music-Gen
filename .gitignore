@@ -15,3 +15,6 @@ _shot.png
 _crop.png
 gui_test.log
 _gui.out
+
+# 工作区助手状态
+.workbuddy/
