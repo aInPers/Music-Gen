@@ -17,7 +17,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+from ..core.notes import PitchError, parse_pitches
 from ..core.project import (
+    Note,
     ProjectError,
     clear_track_overrides,
     load_project,
@@ -30,6 +32,7 @@ from . import layout, menubar, theme, widgets
 from .docking import DockManager
 from .info import ProjectInfoPage
 from .newproject import NewProjectDialog
+from .notepanel import NotePanel
 from .output import OutputPanel
 from .pianoroll import PianoRollPage
 from .player import AudioPlayer, PlaybackUnavailable
@@ -68,6 +71,7 @@ class MusicGenApp(tk.Tk):
 
         self.project = None
         self.selected = -1
+        self.note_sel: tuple[int, int] | None = None
         self.result: RenderResult | None = None
         self.output_path: Path | None = None
         self.page = "roll"
@@ -172,7 +176,8 @@ class MusicGenApp(tk.Tk):
         self.page_host = tk.Frame(self.editor, bg=T["editor"])
         self.page_host.pack(fill="both", expand=True)
 
-        self.roll = PianoRollPage(self.page_host, on_pick_track=self.select_track)
+        self.roll = PianoRollPage(self.page_host, on_pick_track=self.select_track,
+                                  on_pick_note=self.select_note)
         self.wave = WaveformPage(self.page_host)
         self.info = ProjectInfoPage(self.page_host)
         self.pages = {"roll": self.roll, "wave": self.wave, "info": self.info}
@@ -190,10 +195,16 @@ class MusicGenApp(tk.Tk):
                     on_apply=self.on_apply,
                 ),
                 "properties": lambda parent: PropertiesPanel(parent, on_apply=self.on_apply),
+                "note": lambda parent: NotePanel(
+                    parent, on_apply=self.on_note_apply, on_delete=self.on_note_delete,
+                    on_duplicate=self.on_note_duplicate, on_step=self.on_note_step,
+                ),
                 "output": lambda parent: OutputPanel(parent),
             },
-            titles={"explorer": "解决方案资源管理器", "properties": "属性", "output": "输出"},
-            defaults={"explorer": "left", "properties": "right", "output": "bottom"},
+            titles={"explorer": "解决方案资源管理器", "properties": "属性",
+                    "note": "音符", "output": "输出"},
+            defaults={"explorer": "left", "properties": "right", "note": "left",
+                      "output": "bottom"},
             on_created=self._on_panel_created,
             center=self.center_host,
             on_layout_changed=self._schedule_save_layout,
@@ -213,6 +224,9 @@ class MusicGenApp(tk.Tk):
             self.props = widget
             track = self._current_track()
             widget.set_track(track, "" if track is None else self._instrument_note(track))
+        elif key == "note":
+            self.note_panel = widget
+            self._refresh_note_panel()
         elif key == "output":
             self.output = widget
             for message, level in self._log_lines[-200:]:
@@ -232,10 +246,31 @@ class MusicGenApp(tk.Tk):
         self.bind("<F4>", lambda _e: self.toggle_panel("properties"))
         self.bind("<Control-Shift-KeyPress-E>", lambda _e: self.toggle_panel("explorer"))
         self.bind("<F5>", lambda _e: self.on_refresh())
-        self.bind("<space>", lambda _e: self.on_play())
-        self.bind("<Escape>", lambda _e: self.on_stop_playback())
-        self.bind("m", lambda _e: self.on_toggle_selected("mute"))
-        self.bind("s", lambda _e: self.on_toggle_selected("solo"))
+        self.bind("<space>", self._hotkey(self.on_play))
+        self.bind("<Escape>", self._hotkey(self.on_stop_playback))
+        self.bind("m", self._hotkey(lambda: self.on_toggle_selected("mute")))
+        self.bind("s", self._hotkey(lambda: self.on_toggle_selected("solo")))
+        # 音符编辑
+        self.bind("<Delete>", self._hotkey(self.on_note_delete))
+        self.bind("<Control-d>", self._hotkey(self.on_note_duplicate))
+        self.bind("<Control-Left>", self._hotkey(lambda: self.on_note_step(-1)))
+        self.bind("<Control-Right>", self._hotkey(lambda: self.on_note_step(1)))
+
+    def _typing(self) -> bool:
+        """焦点在输入框里时，单键快捷键要让位给打字。"""
+        widget = self.focus_get()
+        return widget is not None and widget.winfo_class() in (
+            "Entry", "TEntry", "Text", "Spinbox", "TCombobox"
+        )
+
+    def _hotkey(self, action):
+        def handler(_event=None):
+            if self._typing():
+                return None
+            action()
+            return "break"
+
+        return handler
 
     # ---------------------------------------------------------------- 页面
     def goto_page(self, key: str) -> None:
@@ -373,6 +408,7 @@ class MusicGenApp(tk.Tk):
         self._stop_playback(reset=True)
         self.project = project
         self.selected = 0 if project.tracks else -1
+        self.note_sel = None
         self.result = None
         self.player.unload()
         self.transport.set_enabled(False)
@@ -380,10 +416,7 @@ class MusicGenApp(tk.Tk):
         self.wave.clear()
         self.status.set_progress(None)
         self.title(f"{project.path.name} — MusicGen")
-        self.toolbar.set_project_info(
-            f"{project.name}  ·  {project.bpm:g} BPM  ·  {len(project.tracks)} 音轨  ·  "
-            f"{_fmt_time(project.compute_length_seconds())}"
-        )
+        self._refresh_toolbar_info()
         self.toolbar.btn_render.set_enabled(True)
         self.toolbar.btn_export.set_enabled(False)
 
@@ -422,6 +455,9 @@ class MusicGenApp(tk.Tk):
     def select_track(self, index: int) -> None:
         if self.project is None or not (0 <= index < len(self.project.tracks)):
             return
+        if index != self.selected:
+            self.note_sel = None
+            self.roll.set_selected_note(-1, -1)
         self.selected = index
         explorer = self.dock_manager.panel("explorer")
         if explorer is not None:
@@ -435,6 +471,162 @@ class MusicGenApp(tk.Tk):
         if props is not None:
             track = self._current_track()
             props.set_track(track, "" if track is None else self._instrument_note(track))
+        self._refresh_note_panel()
+
+    # ---------------------------------------------------------------- 音符
+    def _note_panel(self):
+        manager = getattr(self, "dock_manager", None)
+        return None if manager is None else manager.panel("note")
+
+    def _refresh_note_panel(self) -> None:
+        panel = self._note_panel()
+        if panel is None:
+            return
+        if self.project is None or self.note_sel is None:
+            panel.set_note(None, None, -1)
+            return
+        track_index, note_index = self.note_sel
+        if not (0 <= track_index < len(self.project.tracks)):
+            panel.set_note(None, None, -1)
+            return
+        panel.set_note(self.project, self.project.tracks[track_index], note_index)
+
+    def select_note(self, track_index: int, note_index: int) -> None:
+        """钢琴卷帘里点中某个音符（``-1`` 表示点了空白）。"""
+        if self.project is None:
+            return
+        if track_index < 0 or note_index < 0:
+            self.note_sel = None
+            self.roll.set_selected_note(-1, -1)
+            self._refresh_note_panel()
+            return
+        if not (0 <= track_index < len(self.project.tracks)):
+            return
+        track = self.project.tracks[track_index]
+        if not (0 <= note_index < len(track.notes)):
+            return
+        self.selected = track_index
+        self.note_sel = (track_index, note_index)
+        explorer = self.dock_manager.panel("explorer")
+        if explorer is not None:
+            explorer.select_track(track_index)
+        self._select_ui(track_index)
+        self.roll.set_selected_note(track_index, note_index)
+        self._refresh_note_panel()
+        self.status.set_message(self._note_line(track, note_index))
+
+    @staticmethod
+    def _note_line(track, note_index: int) -> str:
+        note = track.notes[note_index]
+        return (f"{track.name} · 第 {note_index + 1} 个音符 · "
+                f"{note.time:g}→{note.time + note.dur:g} 拍 · 力度 {note.velocity:.2f}")
+
+    def on_note_apply(self, values: dict) -> None:
+        if self.project is None or self.note_sel is None:
+            return
+        track_index, note_index = self.note_sel
+        track = self.project.tracks[track_index]
+        if not (0 <= note_index < len(track.notes)):
+            return
+        note = track.notes[note_index]
+        try:
+            time = float(values["time"])
+            dur = float(values["dur"])
+        except ValueError:
+            messagebox.showerror("参数错误", "起始 / 时长必须是数字（单位：拍）")
+            return
+        if time < 0 or dur <= 0:
+            messagebox.showerror("参数错误", "起始不能为负，时长必须大于 0。")
+            return
+        try:
+            pitches = parse_pitches(values["pitch"])
+        except PitchError as exc:
+            messagebox.showerror("音高有误", str(exc))
+            return
+        note.time = time
+        note.dur = dur
+        note.pitches = pitches
+        note.velocity = max(0.0, min(1.0, float(values["velocity"])))
+        self._save_track(track, f"更新音符：{self._note_line(track, note_index)}")
+        self.roll.set_selected_note(track_index, note_index)
+        self._refresh_note_panel()
+
+    def on_note_delete(self) -> None:
+        if self.project is None or self.note_sel is None:
+            return
+        track_index, note_index = self.note_sel
+        track = self.project.tracks[track_index]
+        if not (0 <= note_index < len(track.notes)):
+            return
+        removed = self._note_line(track, note_index)
+        track.notes.pop(note_index)
+        if track.notes:
+            self.note_sel = (track_index, min(note_index, len(track.notes) - 1))
+        else:
+            self.note_sel = None
+        self._save_track(track, f"删除音符：{removed}", level="warn")
+        self._after_note_change(track_index)
+
+    def on_note_duplicate(self) -> None:
+        if self.project is None or self.note_sel is None:
+            return
+        track_index, note_index = self.note_sel
+        track = self.project.tracks[track_index]
+        if not (0 <= note_index < len(track.notes)):
+            return
+        source = track.notes[note_index]
+        clone = Note(time=source.time + source.dur, dur=source.dur,
+                     pitches=list(source.pitches), velocity=source.velocity)
+        track.notes.insert(note_index + 1, clone)
+        self.note_sel = (track_index, note_index + 1)
+        self._save_track(track, f"复制音符：{self._note_line(track, note_index + 1)}")
+        self._after_note_change(track_index)
+
+    def on_note_step(self, delta: int) -> None:
+        if self.project is None or self.note_sel is None:
+            return
+        track_index, note_index = self.note_sel
+        track = self.project.tracks[track_index]
+        if not track.notes:
+            return
+        note_index = (note_index + delta) % len(track.notes)
+        self.note_sel = (track_index, note_index)
+        self.roll.set_selected_note(track_index, note_index)
+        self._refresh_note_panel()
+        self.status.set_message(self._note_line(track, note_index))
+
+    def _after_note_change(self, track_index: int) -> None:
+        """音符增删后同步卷帘、列表、属性与状态栏。"""
+        self.roll.set_selected(track_index)
+        self.roll.set_selected_note(*(self.note_sel or (-1, -1)))
+        self._select_ui(track_index)
+        self._refresh_explorer()
+
+    def _refresh_toolbar_info(self) -> None:
+        if self.project is None:
+            return
+        self.toolbar.set_project_info(
+            f"{self.project.name}  ·  {self.project.bpm:g} BPM  ·  "
+            f"{len(self.project.tracks)} 音轨  ·  "
+            f"{_fmt_time(self.project.compute_length_seconds())}"
+        )
+
+    def _save_track(self, track, message: str, level: str = "ok") -> bool:
+        """把一条音轨写回 XML，并同步界面上的派生信息。"""
+        try:
+            path = save_track(track)
+        except OSError as exc:
+            messagebox.showerror("保存失败", str(exc))
+            return False
+        changed = clear_track_overrides(self.project.path, track.path)
+        self._refresh_explorer()
+        self.roll.schedule_redraw()
+        self.info.set_project(self.project)
+        self._refresh_status_items()
+        self._refresh_toolbar_info()
+        self.status.set_message(f"已保存 {path.name}")
+        self.log(message + ("，并清除了工程层覆盖" if changed else ""), level)
+        return True
 
     def _refresh_explorer(self) -> None:
         explorer = self.dock_manager.panel("explorer")
@@ -482,21 +674,11 @@ class MusicGenApp(tk.Tk):
         except ValueError:
             messagebox.showerror("参数错误", f"循环长度无法解析：{raw_len}")
             return
-        try:
-            path = save_track(track)
-        except OSError as exc:
-            messagebox.showerror("保存失败", str(exc))
-            return
-        changed = clear_track_overrides(self.project.path, track.path)
-        self._refresh_explorer()
-        self.roll.schedule_redraw()
-        self.info.set_project(self.project)
-        self.status.set_message(f"已保存 {path.name}")
-        self.log(
-            f"保存音轨 {path.name}（音量 {track.gain_db:+.1f}dB / 声像 {track.pan:+.2f} / "
-            f"混响 {track.reverb:.2f}{' / 循环' if track.loop else ''}）"
-            + ("，并清除了工程层覆盖" if changed else ""),
-            "ok",
+        name = track.path.name if track.path else track.name
+        self._save_track(
+            track,
+            f"保存音轨 {name}（音量 {track.gain_db:+.1f}dB / 声像 {track.pan:+.2f} / "
+            f"混响 {track.reverb:.2f}{' / 循环' if track.loop else ''}）",
         )
 
     # ---------------------------------------------------------------- 渲染

@@ -24,6 +24,7 @@ os.environ["MUSICGEN_UI"] = str(_UI_TMP / "ui.json")
 try:
     import tkinter  # noqa: F401
 
+    from musicgen.core.notes import midi_to_name
     from musicgen.gui.app import MusicGenApp
     from musicgen.gui.newproject import NewProjectDialog
 
@@ -68,8 +69,9 @@ class GuiTests(unittest.TestCase):
         explorer = self.app.dock_manager.panel("explorer")
         self.assertIsNotNone(explorer)
         self.assertEqual(len(explorer.track_items), 4)
-        self.assertIn("已打开", self.app.status.message.cget("text"))
+        self.assertIn(self.project_path.name, self.app.title())
         self.assertEqual(len(self.app.menu_bar.buttons), 5)
+        self.assertEqual(self.app.dock_manager.area_of("note"), "left")
 
     def test_document_pages(self) -> None:
         self.app.goto_page("info")
@@ -181,6 +183,117 @@ class GuiTests(unittest.TestCase):
         for key in ("geometry", "docks", "sizes", "volume", "page"):
             self.assertIn(key, data)
         self.assertEqual(data["docks"]["output"], "bottom")
+
+    # ---- 音符（每一小段）属性 ------------------------------------------
+    def test_select_note_shows_properties(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+        self.app.goto_page("roll")
+        self.app.select_note(1, 2)
+        self.app.update()
+        panel = self.app.dock_manager.panel("note")
+        note = self.app.project.tracks[1].notes[2]
+        self.assertEqual(self.app.note_sel, (1, 2))
+        self.assertEqual(panel.labels["track"].cget("text"), "Ostinato")
+        self.assertEqual(panel.labels["pos"].cget("text").split("·")[-1].strip(), "3/8")
+        self.assertAlmostEqual(float(panel.vars["time"].get()), note.time)
+        self.assertEqual(panel.vars["pitch"].get(),
+                         ",".join(midi_to_name(p) for p in note.pitches))
+        self.assertGreater(len(self.app.roll.canvas.find_withtag("n:1:2")), 0)
+
+    def test_note_click_selects_segment(self) -> None:
+        self.app.goto_page("roll")
+        self.app.roll.reset_view()
+        self.app.roll.redraw()
+        self.app.update()
+        canvas = self.app.roll.canvas
+        items = canvas.find_withtag("n:2:0")
+        self.assertTrue(items, "卷帘里应有可点的音符")
+        x1, y1, x2, y2 = canvas.coords(items[0])
+        canvas.event_generate("<Button-1>", x=int((x1 + x2) / 2), y=int((y1 + y2) / 2))
+        self.app.update()
+        self.assertEqual(self.app.note_sel, (2, 0))
+        self.assertEqual(self.app.selected, 2)
+
+    def test_note_apply_writes_xml(self) -> None:
+        self.app.select_note(3, 0)
+        self.app.update()
+        panel = self.app.dock_manager.panel("note")
+        panel.vars["time"].set("0.5")
+        panel.vars["dur"].set("1.5")
+        panel.vars["pitch"].set("E5,G5")
+        panel.velocity.set(0.55)
+        self.app.on_note_apply(panel.values())
+        self.app.update()
+        note = self.app.project.tracks[3].notes[0]
+        self.assertAlmostEqual(note.time, 0.5)
+        self.assertAlmostEqual(note.dur, 1.5)
+        self.assertEqual(len(note.pitches), 2)
+        self.assertAlmostEqual(note.velocity, 0.55)
+        text = (self.project_path.parent / "tracks" / "melody.track.xml").read_text(
+            encoding="utf-8")
+        self.assertIn('pitch="E5,G5"', text)
+        self.assertIn('time="0.5"', text)
+        # 复位工程，后面的用例不受影响
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+
+    def test_note_duplicate_and_delete(self) -> None:
+        self.app.select_note(0, 0)
+        self.app.update()
+        count = len(self.app.project.tracks[0].notes)
+        self.app.on_note_duplicate()
+        self.app.update()
+        self.assertEqual(len(self.app.project.tracks[0].notes), count + 1)
+        self.assertEqual(self.app.note_sel, (0, 1))
+        self.app.on_note_delete()
+        self.app.update()
+        self.assertEqual(len(self.app.project.tracks[0].notes), count)
+        self.app.on_note_step(1)
+        self.app.update()
+        self.assertEqual(self.app.note_sel, (0, 2))
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+
+    # ---- 卷帘滚动 -----------------------------------------------------
+    def test_roll_scroll_gestures(self) -> None:
+        self.app.goto_page("roll")
+        self.app.roll.reset_view()
+        self.app.update()
+        roll = self.app.roll
+        canvas = roll.canvas
+        top0 = roll.pitch_top
+
+        canvas.event_generate("<MouseWheel>", delta=-120, x=400, y=200)
+        self.app.update()
+        self.assertLess(roll.pitch_top, top0)          # 向下滚 → 看更低的音
+
+        canvas.event_generate("<MouseWheel>", delta=120, x=400, y=200)
+        self.app.update()
+        self.assertAlmostEqual(roll.pitch_top, top0, places=3)
+
+        zoom0 = roll.zoom
+        canvas.event_generate("<Control-MouseWheel>", delta=120, x=400, y=200)
+        self.app.update()
+        self.assertGreater(roll.zoom, zoom0)           # Ctrl → 横向放大
+        self.assertGreater(roll._pixels_per_beat(), 0)
+
+        canvas.event_generate("<Alt-MouseWheel>", delta=-120, x=400, y=200)
+        self.app.update()
+        self.assertGreater(roll.scroll_beats, 0.0)     # Alt → 向右滚
+
+        span0 = roll.pitch_span
+        canvas.event_generate("<Shift-MouseWheel>", delta=120, x=400, y=200)
+        self.app.update()
+        self.assertLess(roll.pitch_span, span0)        # Shift → 行高变大（可见半音变少）
+
+        first, last = roll.hbar.get()
+        self.assertGreaterEqual(first, 0.0)
+        self.assertLessEqual(last, 1.0)
+        roll.reset_view()
+        self.app.update()
+        self.assertEqual(roll.zoom, 1.0)
+        self.assertEqual(roll.scroll_beats, 0.0)
 
     # ---- 渲染与预览 ---------------------------------------------------
     def test_render_produces_waveform(self) -> None:

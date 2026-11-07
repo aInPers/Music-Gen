@@ -12,6 +12,8 @@ T = theme.PALETTE
 
 
 class SolutionExplorer(tk.Frame):
+    PREFERRED_HEIGHT = 320
+
     def __init__(
         self,
         master: tk.Misc,

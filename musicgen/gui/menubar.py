@@ -63,6 +63,15 @@ def build(root: tk.Misc, app) -> MenuBar:
     edit_menu.add_command(label="独奏选中音轨", accelerator="S",
                           command=lambda: app.on_toggle_selected("solo"))
     edit_menu.add_separator()
+    edit_menu.add_command(label="复制选中音符", accelerator="Ctrl+D",
+                          command=app.on_note_duplicate)
+    edit_menu.add_command(label="删除选中音符", accelerator="Delete",
+                          command=app.on_note_delete)
+    edit_menu.add_command(label="上一个音符", accelerator="Ctrl+←",
+                          command=lambda: app.on_note_step(-1))
+    edit_menu.add_command(label="下一个音符", accelerator="Ctrl+→",
+                          command=lambda: app.on_note_step(1))
+    edit_menu.add_separator()
     edit_menu.add_command(label="清空输出", command=app.clear_output)
 
     # 视图：文档页 + 工具窗口（勾选式）+ 布局
@@ -79,6 +88,7 @@ def build(root: tk.Misc, app) -> MenuBar:
     for key, label, accelerator in (
         ("explorer", "解决方案资源管理器", "Ctrl+Shift+E"),
         ("properties", "属性窗口", "F4"),
+        ("note", "音符窗口", ""),
         ("output", "输出窗口", "Ctrl+L"),
     ):
         var = tk.BooleanVar(value=True)
@@ -92,7 +102,7 @@ def build(root: tk.Misc, app) -> MenuBar:
     view_menu.add_separator()
     dock_menu = theme.make_menu(view_menu)
     for key, label in (("explorer", "解决方案资源管理器"), ("properties", "属性"),
-                       ("output", "输出")):
+                       ("note", "音符"), ("output", "输出")):
         sub = theme.make_menu(dock_menu)
         for area, area_label in (("left", "左侧"), ("right", "右侧"), ("bottom", "底部")):
             sub.add_command(label=area_label,

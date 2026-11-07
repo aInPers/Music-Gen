@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 from typing import Callable
 
 from . import icons, theme
@@ -180,6 +181,64 @@ class PanelHeader(tk.Frame):
 
     def set_title(self, text: str) -> None:
         self._title.configure(text=text)
+
+
+class ScrollArea(tk.Frame):
+    """可滚动容器：内容放进 ``self.body``，超出高度时右侧出现细滚动条。
+
+    工具窗口里的属性行一多就会超出面板高度，包一层这个就不用担心被裁掉。
+    """
+
+    def __init__(self, master: tk.Misc, background: str | None = None) -> None:
+        bg = background or T["panel"]
+        super().__init__(master, bg=bg)
+        self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0, bd=0, width=1, height=1)
+        self.bar = ttk.Scrollbar(
+            self, orient="vertical", style="VS.Vertical.TScrollbar", command=self.canvas.yview
+        )
+        self.canvas.configure(yscrollcommand=self.bar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.body = tk.Frame(self.canvas, bg=bg)
+        self._window = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
+        self.body.bind("<Configure>", self._sync_region)
+        self.canvas.bind("<Configure>", self._sync_width)
+        self.canvas.bind("<MouseWheel>", self._on_wheel)
+
+    # ---- 尺寸 ---------------------------------------------------------
+    def _sync_region(self, _event=None) -> None:
+        self.canvas.configure(
+            scrollregion=(0, 0, self.canvas.winfo_width(), max(1, self.body.winfo_reqheight()))
+        )
+        self._toggle_bar()
+
+    def _sync_width(self, _event=None) -> None:
+        self.canvas.itemconfigure(self._window, width=self.canvas.winfo_width())
+        self._sync_region()
+
+    def _toggle_bar(self) -> None:
+        needed = self.body.winfo_reqheight() > self.canvas.winfo_height() + 1
+        shown = bool(self.bar.winfo_manager())
+        if needed and not shown:
+            self.bar.pack(side="right", fill="y", before=self.canvas)
+        elif not needed and shown:
+            self.bar.pack_forget()
+
+    # ---- 滚动 ---------------------------------------------------------
+    def _on_wheel(self, event: tk.Event) -> str:
+        if not self.bar.winfo_manager():
+            return "break"
+        self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        return "break"
+
+    def bind_wheels(self) -> None:
+        """把滚轮事件绑到所有子控件上（子控件不会自动往上报给 canvas）。"""
+
+        def walk(widget: tk.Misc) -> None:
+            widget.bind("<MouseWheel>", self._on_wheel, add="+")
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(self.body)
 
 
 class Separator(tk.Frame):

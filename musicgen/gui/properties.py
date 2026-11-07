@@ -1,4 +1,7 @@
-"""右侧「属性」工具窗口：编辑选中音轨的混音与播放参数。"""
+"""右侧「属性」工具窗口：编辑选中音轨的混音与播放参数。
+
+内容放在可滚动容器里：窗口压矮时不会把行裁掉，滚轮即可看全。
+"""
 
 from __future__ import annotations
 
@@ -12,6 +15,8 @@ T = theme.PALETTE
 
 
 class PropertiesPanel(tk.Frame):
+    PREFERRED_HEIGHT = 420
+
     def __init__(self, master: tk.Misc, on_apply: Callable[[], None]) -> None:
         super().__init__(master, bg=T["panel"])
         self.on_apply = on_apply
@@ -20,7 +25,21 @@ class PropertiesPanel(tk.Frame):
         self.header = widgets.PanelHeader(self, "属性")
         self.header.pack(fill="x")
 
-        self.grid = widgets.PropertyGrid(self, label_width=76)
+        footer = tk.Frame(self, bg=T["panel"])
+        footer.pack(side="bottom", fill="x", pady=(8, 8), padx=10)
+        self.btn_apply = tk.Button(
+            footer, text="应用并保存", command=self._apply, bg=T["accent_dim"], fg="#FFFFFF",
+            activebackground=T["accent"], activeforeground="#FFFFFF", relief="flat", bd=0,
+            font=theme.font(9), cursor="hand2", pady=5,
+        )
+        self.btn_apply.pack(fill="x")
+        self.hint = tk.Label(footer, text="修改后写入音轨 XML", bg=T["panel"], fg=T["text_faint"],
+                             font=theme.font(8))
+        self.hint.pack(anchor="w", pady=(4, 0))
+
+        self.scroll = widgets.ScrollArea(self, background=T["panel"])
+        self.scroll.pack(fill="both", expand=True)
+        self.grid = widgets.PropertyGrid(self.scroll.body, label_width=76)
         self.grid.pack(fill="x")
 
         self.labels: dict[str, tk.Label] = {}
@@ -53,18 +72,7 @@ class PropertiesPanel(tk.Frame):
         self.entry_loop.pack(side="left", padx=(0, 6))
         tk.Label(row, text="拍", bg=T["panel"], fg=T["text_faint"], font=theme.font(8)).pack(side="left")
 
-        footer = tk.Frame(self, bg=T["panel"])
-        footer.pack(fill="x", pady=(10, 8), padx=10)
-        self.btn_apply = tk.Button(
-            footer, text="应用并保存", command=self._apply, bg=T["accent_dim"], fg="#FFFFFF",
-            activebackground=T["accent"], activeforeground="#FFFFFF", relief="flat", bd=0,
-            font=theme.font(9), cursor="hand2", pady=5,
-        )
-        self.btn_apply.pack(fill="x")
-        self.hint = tk.Label(footer, text="修改后写入音轨 XML", bg=T["panel"], fg=T["text_faint"],
-                             font=theme.font(8))
-        self.hint.pack(anchor="w", pady=(4, 0))
-
+        self.scroll.bind_wheels()
         self.set_track(None)
 
     # ---- 构建小工具 ---------------------------------------------------

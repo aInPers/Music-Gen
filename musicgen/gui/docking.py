@@ -104,7 +104,11 @@ class DockManager:
         container = self.containers[area]
         widget = self.factories[key](container)
         if isinstance(container, tk.PanedWindow):
-            container.add(widget, minsize=70, stretch="always")
+            # 面板自己声明 PREFERRED_HEIGHT，入栏时先按它给高度，
+            # 再由最高的那个面板吃掉窗口变高多出来的空间。
+            wanted = int(getattr(widget, "PREFERRED_HEIGHT", 200))
+            container.add(widget, minsize=80, height=wanted, stretch="never")
+            self._rebalance(container)
         else:
             widget.pack(fill="both", expand=True)
         self.panels[key] = widget
@@ -126,6 +130,17 @@ class DockManager:
                 container.update_idletasks() if container is not None else None
                 if self._area_is_empty(area):
                     self._collapse(area)
+
+    @staticmethod
+    def _rebalance(container: tk.PanedWindow) -> None:
+        """同一停靠区里，最高的面板拉伸，其余保持自然高度。"""
+        panes = [container.nametowidget(str(item)) for item in container.panes()]
+        if not panes:
+            return
+        heights = {pane: int(getattr(pane, "PREFERRED_HEIGHT", 200)) for pane in panes}
+        tallest = max(panes, key=lambda pane: heights[pane])
+        for pane in panes:
+            container.paneconfigure(pane, stretch="always" if pane is tallest else "never")
 
     def _area_is_empty(self, area: str) -> bool:
         container = self.containers[area]
