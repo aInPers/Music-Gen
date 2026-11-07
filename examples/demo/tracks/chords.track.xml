@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Chords" instrument="piano" gain="-4dB" pan="-0.08" reverb="0.28">
+  <note time="0" dur="3.85" pitch="A3,C4,E4" vel="0.46" />
+  <note time="3" dur="0.9" pitch="A4" vel="0.4" />
+  <note time="4" dur="3.85" pitch="F3,A3,C4" vel="0.48" />
+  <note time="7" dur="0.9" pitch="C5" vel="0.4" />
+  <note time="8" dur="3.85" pitch="G3,C4,E4" vel="0.5" />
+  <note time="11" dur="0.9" pitch="A4" vel="0.4" />
+  <note time="12" dur="3.85" pitch="G3,B3,D4" vel="0.47" />
+  <note time="15" dur="0.9" pitch="C5" vel="0.4" />
+  <note time="16" dur="3.85" pitch="A3,C4,E4" vel="0.52" />
+  <note time="19" dur="0.9" pitch="A4" vel="0.4" />
+  <note time="20" dur="3.85" pitch="F3,A3,C4" vel="0.54" />
+  <note time="23" dur="0.9" pitch="C5" vel="0.4" />
+  <note time="24" dur="3.85" pitch="G3,C4,E4" vel="0.52" />
+  <note time="27" dur="0.9" pitch="A4" vel="0.4" />
+  <note time="28" dur="3.85" pitch="G3,B3,D4" vel="0.49" />
+  <note time="31" dur="0.9" pitch="C5" vel="0.4" />
+</track>

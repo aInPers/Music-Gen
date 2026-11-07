@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Melody" instrument="piano" gain="-3dB" pan="0.16" reverb="0.32">
+  <note time="0" dur="0.95" pitch="E5" vel="0.78" />
+  <note time="1" dur="0.95" pitch="D5" vel="0.72" />
+  <note time="2" dur="0.95" pitch="C5" vel="0.74" />
+  <note time="3" dur="0.95" pitch="E5" vel="0.76" />
+  <note time="4" dur="1.9" pitch="F5" vel="0.8" />
+  <note time="6" dur="0.95" pitch="E5" vel="0.74" />
+  <note time="7" dur="0.95" pitch="D5" vel="0.7" />
+  <note time="8" dur="1.9" pitch="C5" vel="0.78" />
+  <note time="10" dur="0.95" pitch="D5" vel="0.72" />
+  <note time="11" dur="0.95" pitch="E5" vel="0.76" />
+  <note time="12" dur="1.9" pitch="G5" vel="0.82" />
+  <note time="14" dur="1.9" pitch="F5" vel="0.78" />
+  <note time="16" dur="0.95" pitch="E5" vel="0.76" />
+  <note time="17" dur="0.95" pitch="C5" vel="0.72" />
+  <note time="18" dur="1.9" pitch="A4" vel="0.74" />
+  <note time="20" dur="0.95" pitch="C5" vel="0.72" />
+  <note time="21" dur="0.95" pitch="D5" vel="0.74" />
+  <note time="22" dur="1.9" pitch="E5" vel="0.78" />
+  <note time="24" dur="0.95" pitch="D5" vel="0.74" />
+  <note time="25" dur="0.95" pitch="C5" vel="0.7" />
+  <note time="26" dur="1.9" pitch="B4" vel="0.72" />
+  <note time="28" dur="0.95" pitch="G4" vel="0.7" />
+  <note time="29" dur="0.95" pitch="A4" vel="0.72" />
+  <note time="30" dur="1.9" pitch="A4" vel="0.78" />
+</track>

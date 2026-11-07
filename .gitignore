@@ -1,0 +1,17 @@
+# 依赖缓存
+__pycache__/
+*.pyc
+
+# 音源缓存（体积大，可重新下载）
+samples_cache/
+
+# 渲染产物
+output/
+*.wav
+!examples/**/*.wav
+
+# 临时文件
+_shot.png
+_crop.png
+gui_test.log
+_gui.out

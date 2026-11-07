@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Ostinato" instrument="piano" gain="-4dB" pan="-0.28" reverb="0.18" loop="true" loopLen="4">
+  <note time="0" dur="0.46" pitch="A4" vel="0.47" />
+  <note time="0.5" dur="0.46" pitch="C5" vel="0.42" />
+  <note time="1" dur="0.46" pitch="E5" vel="0.42" />
+  <note time="1.5" dur="0.46" pitch="G5" vel="0.42" />
+  <note time="2" dur="0.46" pitch="E5" vel="0.47" />
+  <note time="2.5" dur="0.46" pitch="C5" vel="0.42" />
+  <note time="3" dur="0.46" pitch="A4" vel="0.42" />
+  <note time="3.5" dur="0.46" pitch="C5" vel="0.42" />
+</track>

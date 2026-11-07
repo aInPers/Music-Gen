@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MusicGen 示例工程：a 小调钢琴小品（8 小节 / 32 拍） -->
+<musicproj name="Nocturne in A minor" bpm="84" sampleRate="44100"
+           beatsPerBar="4" length="auto" masterGain="-1dB" normalize="true">
+
+  <!-- 每条音轨一个文件；工程层可覆盖 gain / pan / mute / solo / loop -->
+  <track file="tracks/chords.track.xml"/>
+  <track file="tracks/ostinato.track.xml"/>
+  <track file="tracks/bass.track.xml" pan="-0.05"/>
+  <track file="tracks/melody.track.xml"/>
+</musicproj>

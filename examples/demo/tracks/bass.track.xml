@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Bass" instrument="piano" gain="-5dB" pan="0" reverb="0.1">
+  <note time="0" dur="2.9" pitch="A2" vel="0.55" />
+  <note time="3" dur="0.9" pitch="A2" vel="0.38" />
+  <note time="4" dur="2.9" pitch="F2" vel="0.55" />
+  <note time="7" dur="0.9" pitch="F2" vel="0.38" />
+  <note time="8" dur="2.9" pitch="C3" vel="0.55" />
+  <note time="11" dur="0.9" pitch="C3" vel="0.38" />
+  <note time="12" dur="2.9" pitch="G2" vel="0.55" />
+  <note time="15" dur="0.9" pitch="G2" vel="0.38" />
+  <note time="16" dur="2.9" pitch="A2" vel="0.55" />
+  <note time="19" dur="0.9" pitch="A2" vel="0.38" />
+  <note time="20" dur="2.9" pitch="F2" vel="0.55" />
+  <note time="23" dur="0.9" pitch="F2" vel="0.38" />
+  <note time="24" dur="2.9" pitch="C3" vel="0.55" />
+  <note time="27" dur="0.9" pitch="C3" vel="0.38" />
+  <note time="28" dur="2.9" pitch="G2" vel="0.55" />
+  <note time="31" dur="0.9" pitch="G2" vel="0.38" />
+</track>

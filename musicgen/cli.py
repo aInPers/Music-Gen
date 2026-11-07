@@ -1,0 +1,358 @@
+"""MusicGen 命令行入口。
+
+用法示例::
+
+    python -m musicgen render examples/demo/demo.musicproj -o out.wav
+    python -m musicgen validate examples/demo/demo.musicproj
+    python -m musicgen info examples/demo/demo.musicproj
+    python -m musicgen init 我的曲子
+    python -m musicgen samples fetch --instrument piano
+    python -m musicgen gui
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+from . import __version__
+from .core.project import ProjectError, describe, load_project
+from .core.render import render_project
+from .core.wavio import write_wav
+from .samples import fetch
+
+
+def _setup_console() -> None:
+    """Windows 控制台统一用 UTF-8，避免中文报 UnicodeEncodeError。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - 老环境无 reconfigure
+            pass
+
+
+def _fmt_seconds(value: float) -> str:
+    minutes, seconds = divmod(max(0.0, value), 60.0)
+    return f"{int(minutes)}:{seconds:05.2f}"
+
+
+class _Progress:
+    """终端进度条，非 TTY 环境退化为按行输出。"""
+
+    def __init__(self, enabled: bool = True) -> None:
+        self.enabled = enabled
+        self.is_tty = sys.stderr.isatty()
+        self._last = -1.0
+        self._start = time.time()
+
+    def __call__(self, fraction: float, message: str) -> None:
+        if not self.enabled:
+            return
+        if self.is_tty:
+            if fraction - self._last < 0.02 and fraction < 1.0:
+                return
+            self._last = fraction
+            width = 28
+            filled = int(width * fraction)
+            bar = "█" * filled + "░" * (width - filled)
+            sys.stderr.write(f"\r  [{bar}] {fraction * 100:5.1f}%  {message[:28]:<28}")
+            sys.stderr.flush()
+        elif fraction >= 1.0 or fraction - self._last >= 0.25:
+            self._last = fraction
+            sys.stderr.write(f"  {fraction * 100:5.1f}%  {message}\n")
+            sys.stderr.flush()
+
+    def done(self) -> None:
+        if self.enabled and self.is_tty:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+
+
+# ---------------------------------------------------------------------------
+# 子命令
+# ---------------------------------------------------------------------------
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.project)
+    except ProjectError as exc:
+        print("工程文件有问题，无法渲染：", file=sys.stderr)
+        for issue in exc.issues:
+            print(f"  {issue}", file=sys.stderr)
+        return 2
+
+    output = Path(args.output)
+    if output.is_dir() or args.output.endswith(("/", "\\")):
+        output = output / f"{project.path.stem}.wav"
+
+    for warning in project.warnings:
+        print(f"  {warning}", file=sys.stderr)
+
+    print(f"渲染 {project.name} → {output}")
+    print(
+        f"  {len(project.tracks)} 条音轨 | {project.bpm:g}BPM | "
+        f"{project.sample_rate}Hz | 时长 {_fmt_seconds(project.compute_length_seconds())}"
+    )
+
+    progress = _Progress(enabled=not args.quiet)
+    started = time.time()
+    try:
+        result = render_project(
+            project,
+            cache_root=args.cache_dir,
+            progress=progress,
+            normalize=False if args.no_normalize else None,
+        )
+    except FileNotFoundError as exc:
+        progress.done()
+        print(f"渲染失败：{exc}", file=sys.stderr)
+        return 3
+    except Exception as exc:  # noqa: BLE001 - 给用户一条干净的错误
+        progress.done()
+        print(f"渲染失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+        raise
+    progress.done()
+
+    bit_depth = args.float32 and "float32" or args.bits
+    write_wav(output, result.audio, result.sample_rate, bit_depth=bit_depth, dither=not args.no_dither)
+    elapsed = time.time() - started
+
+    print(f"完成：{output}")
+    size_mb = output.stat().st_size / (1024 * 1024)
+    print(
+        f"  时长 {_fmt_seconds(result.duration)} | 峰值 {result.peak_db:+.1f}dBFS | "
+        f"RMS {result.rms_db:+.1f}dBFS | {size_mb:.1f}MB | 位深 "
+        f"{'32f' if args.float32 else args.bits}"
+    )
+    print(f"  音符事件 {result.notes_rendered} 个 | 耗时 {elapsed:.1f}s "
+          f"({result.duration / max(elapsed, 1e-6):.1f}× 实时)")
+
+    for stat in result.track_stats:
+        print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} 峰值 {stat.peak:.3f}")
+    for warning in result.warnings:
+        print(f"  ! {warning}", file=sys.stderr)
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.project)
+    except ProjectError as exc:
+        print(f"校验失败（{len(exc.issues)} 个问题）：", file=sys.stderr)
+        for issue in exc.issues:
+            print(f"  {issue}", file=sys.stderr)
+        return 2
+    print(f"校验通过：{project.path.name}")
+    if project.warnings:
+        print(f"  {len(project.warnings)} 条警告：")
+        for warning in project.warnings:
+            print(f"  {warning}")
+    else:
+        print("  没有警告")
+    return 0
+
+
+def cmd_info(args: argparse.Namespace) -> int:
+    try:
+        project = load_project(args.project)
+    except ProjectError as exc:
+        print("工程文件有问题：", file=sys.stderr)
+        for issue in exc.issues:
+            print(f"  {issue}", file=sys.stderr)
+        return 2
+    print(describe(project))
+    return 0
+
+
+_TEMPLATE_PROJECT = """<?xml version="1.0" encoding="UTF-8"?>
+<musicproj name="{name}" bpm="100" sampleRate="44100" length="auto"
+           masterGain="-1dB" normalize="true">
+  <!-- 每条音轨对应 tracks/ 下的一个文件 -->
+  <track file="tracks/lead.track.xml"/>
+  <track file="tracks/pad.track.xml" gain="-3dB" pan="0.15"/>
+</musicproj>
+"""
+
+_TEMPLATE_LEAD = """<?xml version="1.0" encoding="UTF-8"?>
+<track name="Lead" instrument="piano" gain="-2dB" pan="0" reverb="0.18">
+  <!-- 时值单位是“拍”，支持 1/4 这种分数写法 -->
+  <note time="0"  dur="0.5" pitch="E5"      vel="0.78"/>
+  <note time="0.5" dur="0.5" pitch="G5"     vel="0.70"/>
+  <note time="1"  dur="1"   pitch="C6,E5,G5" vel="0.72"/>
+  <note time="2"  dur="0.5" pitch="B5"      vel="0.66"/>
+  <note time="2.5" dur="0.5" pitch="G5"     vel="0.62"/>
+  <note time="3"  dur="1"   pitch="A5,E5,C5" vel="0.70"/>
+</track>
+"""
+
+_TEMPLATE_PAD = """<?xml version="1.0" encoding="UTF-8"?>
+<track name="Pad" instrument="piano" loop="true" loopLen="4" gain="-6dB"
+       pan="-0.2" reverb="0.35">
+  <!-- loop=true 的音轨会在工程时长内不断重复，每 4 拍一轮 -->
+  <note time="0"    dur="3.5" pitch="C3,G3"  vel="0.42"/>
+  <note time="0"    dur="0.4" pitch="C4"     vel="0.34"/>
+  <note time="0.95" dur="0.4" pitch="C4"     vel="0.30"/>
+  <note time="2.5"  dur="0.4" pitch="C4"     vel="0.32"/>
+  <note time="3.45" dur="0.4" pitch="D4"     vel="0.28"/>
+</track>
+"""
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    target = Path(args.path)
+    name = args.name or target.name or "新工程"
+    project_file = target / f"{target.name or 'demo'}.musicproj"
+    if project_file.exists() and not args.force:
+        print(f"目标已存在：{project_file}（加 --force 可覆盖）", file=sys.stderr)
+        return 1
+    (target / "tracks").mkdir(parents=True, exist_ok=True)
+    project_file.write_text(_TEMPLATE_PROJECT.format(name=name), encoding="utf-8")
+    (target / "tracks" / "lead.track.xml").write_text(_TEMPLATE_LEAD, encoding="utf-8")
+    (target / "tracks" / "pad.track.xml").write_text(_TEMPLATE_PAD, encoding="utf-8")
+    print(f"已创建工程：{project_file}")
+    print("下一步：python -m musicgen render " + str(project_file))
+    return 0
+
+
+def cmd_samples_fetch(args: argparse.Namespace) -> int:
+    instruments = [args.instrument] if args.instrument else ["piano"]
+    exit_code = 0
+    for instrument in instruments:
+        source = fetch.SOURCES.get(instrument)
+        if source is None:
+            print(f"未知乐器：{instrument}（可选：{', '.join(fetch.SOURCES)}）", file=sys.stderr)
+            exit_code = 1
+            continue
+        print(f"下载 {source.title}")
+        print(f"  许可：{source.license}")
+        print(f"  音域：{source.note_range_label or ''} 来源：{source.homepage}")
+        done = {"n": 0}
+
+        def progress(count: int, total: int, note: str) -> None:
+            done["n"] = count
+            if count % 8 == 0 or count == total:
+                print(f"  {count}/{total} … {note}", flush=True)
+
+        try:
+            report = fetch.fetch_instrument(
+                instrument, cache_root=args.cache_dir, force=args.force, progress=progress
+            )
+        except fetch.FetchError as exc:
+            print(f"下载失败：{exc}", file=sys.stderr)
+            exit_code = 1
+            continue
+        print(report.summary())
+        if not report.ok:
+            exit_code = 1
+    return exit_code
+
+
+def cmd_samples_list(args: argparse.Namespace) -> int:
+    if not fetch.SOURCES:
+        print("（没有可用的音源）")
+        return 0
+    print(f"缓存目录：{args.cache_dir or fetch.default_cache_dir()}")
+    for key, source in fetch.SOURCES.items():
+        have, want = fetch.instrument_status(key, args.cache_dir)
+        state = "就绪" if have >= want else ("部分" if have else "未下载")
+        print(f"  {key:<8} {source.title}")
+        print(f"           采样 {have}/{want} [{state}] · {source.license}")
+        print(f"           {source.homepage}")
+    return 0
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    try:
+        from .gui.app import run_gui
+    except ImportError as exc:
+        print(f"无法启动图形界面（缺少 tkinter？）：{exc}", file=sys.stderr)
+        print("提示：用带 tkinter 的解释器运行，例如 `py -3 -m musicgen gui`", file=sys.stderr)
+        return 1
+    return run_gui(args.project)
+
+
+# ---------------------------------------------------------------------------
+# 入口
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="musicgen",
+        description="MusicGen —— 读 *.musicproj 工程文件，渲染出乐器纯音乐 WAV。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""示例:
+  python -m musicgen gui
+  python -m musicgen render examples/demo/demo.musicproj -o out.wav
+  python -m musicgen samples fetch            # 下载钢琴音源
+""",
+    )
+    parser.add_argument("-V", "--version", action="version", version=f"MusicGen {__version__}")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def add_cache(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--cache-dir", type=Path, default=None,
+                       help=f"音源缓存目录（默认 {fetch.default_cache_dir()}）")
+
+    p_render = sub.add_parser("render", help="把工程渲染成 WAV")
+    p_render.add_argument("project", help="*.musicproj 文件路径")
+    p_render.add_argument("-o", "--output", default=None, help="输出 wav 路径（默认同名 .wav）")
+    p_render.add_argument("--bits", type=int, default=24, choices=(16, 24, 32), help="位深（默认 24）")
+    p_render.add_argument("--float32", action="store_true", help="输出 32bit 浮点 WAV")
+    p_render.add_argument("--no-normalize", action="store_true", help="不做峰值归一化")
+    p_render.add_argument("--no-dither", action="store_true", help="不做 TPDF 抖动")
+    p_render.add_argument("--quiet", action="store_true", help="不显示进度条")
+    add_cache(p_render)
+    p_render.set_defaults(func=cmd_render)
+
+    p_validate = sub.add_parser("validate", help="校验工程文件")
+    p_validate.add_argument("project")
+    p_validate.set_defaults(func=cmd_validate)
+
+    p_info = sub.add_parser("info", help="查看工程概要")
+    p_info.add_argument("project")
+    p_info.set_defaults(func=cmd_info)
+
+    p_init = sub.add_parser("init", help="生成一个示例工程")
+    p_init.add_argument("path", help="工程目录")
+    p_init.add_argument("--name", default=None, help="工程名（默认用目录名）")
+    p_init.add_argument("--force", action="store_true", help="覆盖已存在的同名工程")
+    p_init.set_defaults(func=cmd_init)
+
+    p_samples = sub.add_parser("samples", help="音源管理与下载")
+    samples_sub = p_samples.add_subparsers(dest="action", required=True)
+    p_fetch = samples_sub.add_parser("fetch", help="下载乐器采样")
+    p_fetch.add_argument("--instrument", default=None, help="乐器名（默认 piano）")
+    p_fetch.add_argument("--force", action="store_true", help="忽略缓存重新下载")
+    add_cache(p_fetch)
+    p_fetch.set_defaults(func=cmd_samples_fetch)
+    p_list = samples_sub.add_parser("list", help="查看音源状态")
+    add_cache(p_list)
+    p_list.set_defaults(func=cmd_samples_list)
+
+    p_gui = sub.add_parser("gui", help="启动图形界面")
+    p_gui.add_argument("project", nargs="?", default=None, help="启动时打开的工程")
+    p_gui.set_defaults(func=cmd_gui)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    _setup_console()
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "render" and not args.output:
+        args.output = str(Path(args.project).with_suffix(".wav"))
+
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        print("\n已取消", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
