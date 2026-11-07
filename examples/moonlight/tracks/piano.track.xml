@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 贝多芬《月光奏鸣曲》Op.27 No.2 第一乐章 · 1 分钟改编（钢琴独奏）
+     升 c 小调 · Adagio sostenuto · 60BPM · 4/4 · 15 小节 = 60 秒。
+
+     声部：① 低音八度（每小节第 1 拍）② 每拍三个音的分解和弦三连音（1/3 拍）
+            ③ 第 3 小节起进入的主题旋律。三个声部都写在同一条钢琴轨里。
+     没有延音踏板：三连音 dur=3/4 拍（略长于 1/3 拍的间隔）与低音长时值互相重叠，
+     模拟 una corda 踏板的持续和声，同时保留每拍一组的三连音起音；混响 0.35 给一点空间感。
+
+     和声：C#m C#m | A G#7 | C#m F#m | G#7 C#m | E A | F#m G#7 | C#m F#m | C#m
+     力度：pianissimo 起，第 9–11 小节推到高潮，最后两小节渐弱回 C#m 终止。 -->
+<track name="Piano" instrument="piano" gain="0dB" pan="0" reverb="0.35">
+
+  <!-- 第  1 小节 · C#m   -->
+  <!-- 低音八度 -->
+  <note time="0" dur="19/5" pitch="C#2,C#3" vel="0.44"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="0" dur="3/4" pitch="G#3" vel="0.38"/>
+  <note time="1/3" dur="3/4" pitch="C#4" vel="0.32"/>
+  <note time="2/3" dur="3/4" pitch="E4" vel="0.32"/>
+  <note time="1" dur="3/4" pitch="G#3" vel="0.38"/>
+  <note time="4/3" dur="3/4" pitch="C#4" vel="0.32"/>
+  <note time="5/3" dur="3/4" pitch="E4" vel="0.32"/>
+  <note time="2" dur="3/4" pitch="G#3" vel="0.38"/>
+  <note time="7/3" dur="3/4" pitch="C#4" vel="0.32"/>
+  <note time="8/3" dur="3/4" pitch="E4" vel="0.32"/>
+  <note time="3" dur="3/4" pitch="G#3" vel="0.38"/>
+  <note time="10/3" dur="3/4" pitch="C#4" vel="0.32"/>
+  <note time="11/3" dur="3/4" pitch="E4" vel="0.32"/>
+
+  <!-- 第  2 小节 · C#m   -->
+  <!-- 低音八度 -->
+  <note time="4" dur="19/5" pitch="G#2,G#3" vel="0.42"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="4" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="13/3" dur="3/4" pitch="C#4" vel="0.33"/>
+  <note time="14/3" dur="3/4" pitch="E4" vel="0.33"/>
+  <note time="5" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="16/3" dur="3/4" pitch="C#4" vel="0.33"/>
+  <note time="17/3" dur="3/4" pitch="E4" vel="0.33"/>
+  <note time="6" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="19/3" dur="3/4" pitch="C#4" vel="0.33"/>
+  <note time="20/3" dur="3/4" pitch="E4" vel="0.33"/>
+  <note time="7" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="22/3" dur="3/4" pitch="C#4" vel="0.33"/>
+  <note time="23/3" dur="3/4" pitch="E4" vel="0.33"/>
+
+  <!-- 第  3 小节 · A     -->
+  <!-- 低音八度 -->
+  <note time="8" dur="19/5" pitch="A1,A2" vel="0.46"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="8" dur="3/4" pitch="E3" vel="0.40"/>
+  <note time="25/3" dur="3/4" pitch="A3" vel="0.34"/>
+  <note time="26/3" dur="3/4" pitch="C#4" vel="0.34"/>
+  <note time="9" dur="3/4" pitch="E3" vel="0.40"/>
+  <note time="28/3" dur="3/4" pitch="A3" vel="0.34"/>
+  <note time="29/3" dur="3/4" pitch="C#4" vel="0.34"/>
+  <note time="10" dur="3/4" pitch="E3" vel="0.40"/>
+  <note time="31/3" dur="3/4" pitch="A3" vel="0.34"/>
+  <note time="32/3" dur="3/4" pitch="C#4" vel="0.34"/>
+  <note time="11" dur="3/4" pitch="E3" vel="0.40"/>
+  <note time="34/3" dur="3/4" pitch="A3" vel="0.34"/>
+  <note time="35/3" dur="3/4" pitch="C#4" vel="0.34"/>
+  <!-- 主题旋律 -->
+  <note time="8" dur="5/4" pitch="G#4" vel="0.51"/>
+  <note time="9" dur="1/2" pitch="G#4" vel="0.48"/>
+  <note time="19/2" dur="1/2" pitch="A#4" vel="0.52"/>
+  <note time="10" dur="9/4" pitch="B4" vel="0.55"/>
+
+  <!-- 第  4 小节 · G#7   -->
+  <!-- 低音八度 -->
+  <note time="12" dur="19/5" pitch="G#1,G#2" vel="0.48"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="12" dur="3/4" pitch="D#3" vel="0.41"/>
+  <note time="37/3" dur="3/4" pitch="G#3" vel="0.35"/>
+  <note time="38/3" dur="3/4" pitch="B3" vel="0.35"/>
+  <note time="13" dur="3/4" pitch="D#3" vel="0.41"/>
+  <note time="40/3" dur="3/4" pitch="G#3" vel="0.35"/>
+  <note time="41/3" dur="3/4" pitch="B3" vel="0.35"/>
+  <note time="14" dur="3/4" pitch="D#3" vel="0.41"/>
+  <note time="43/3" dur="3/4" pitch="G#3" vel="0.35"/>
+  <note time="44/3" dur="3/4" pitch="B3" vel="0.35"/>
+  <note time="15" dur="3/4" pitch="D#3" vel="0.41"/>
+  <note time="46/3" dur="3/4" pitch="G#3" vel="0.35"/>
+  <note time="47/3" dur="3/4" pitch="B3" vel="0.35"/>
+  <!-- 主题旋律 -->
+  <note time="12" dur="5/4" pitch="C#5" vel="0.57"/>
+  <note time="13" dur="5/4" pitch="B4" vel="0.55"/>
+  <note time="14" dur="9/4" pitch="G#4" vel="0.53"/>
+
+  <!-- 第  5 小节 · C#m   -->
+  <!-- 低音八度 -->
+  <note time="16" dur="19/5" pitch="C#2,C#3" vel="0.50"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="16" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="49/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="50/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <note time="17" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="52/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="53/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <note time="18" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="55/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="56/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <note time="19" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="58/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="59/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <!-- 主题旋律 -->
+  <note time="16" dur="5/4" pitch="C#5" vel="0.67"/>
+  <note time="17" dur="1/2" pitch="C#5" vel="0.64"/>
+  <note time="35/2" dur="1/2" pitch="D#5" vel="0.69"/>
+  <note time="18" dur="5/4" pitch="E5" vel="0.74"/>
+  <note time="19" dur="5/4" pitch="D#5" vel="0.69"/>
+
+  <!-- 第  6 小节 · F#m   -->
+  <!-- 低音八度 -->
+  <note time="20" dur="19/5" pitch="F#1,F#2" vel="0.50"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="20" dur="3/4" pitch="C#3" vel="0.45"/>
+  <note time="61/3" dur="3/4" pitch="F#3" vel="0.38"/>
+  <note time="62/3" dur="3/4" pitch="A3" vel="0.38"/>
+  <note time="21" dur="3/4" pitch="C#3" vel="0.45"/>
+  <note time="64/3" dur="3/4" pitch="F#3" vel="0.38"/>
+  <note time="65/3" dur="3/4" pitch="A3" vel="0.38"/>
+  <note time="22" dur="3/4" pitch="C#3" vel="0.45"/>
+  <note time="67/3" dur="3/4" pitch="F#3" vel="0.38"/>
+  <note time="68/3" dur="3/4" pitch="A3" vel="0.38"/>
+  <note time="23" dur="3/4" pitch="C#3" vel="0.45"/>
+  <note time="70/3" dur="3/4" pitch="F#3" vel="0.38"/>
+  <note time="71/3" dur="3/4" pitch="A3" vel="0.38"/>
+  <!-- 主题旋律 -->
+  <note time="20" dur="9/4" pitch="C#5" vel="0.71"/>
+  <note time="22" dur="5/4" pitch="B4" vel="0.67"/>
+  <note time="23" dur="5/4" pitch="G#4" vel="0.64"/>
+
+  <!-- 第  7 小节 · G#7   -->
+  <!-- 低音八度 -->
+  <note time="24" dur="19/5" pitch="G#1,G#2" vel="0.52"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="24" dur="3/4" pitch="D#3" vel="0.47"/>
+  <note time="73/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="74/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <note time="25" dur="3/4" pitch="D#3" vel="0.47"/>
+  <note time="76/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="77/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <note time="26" dur="3/4" pitch="D#3" vel="0.47"/>
+  <note time="79/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="80/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <note time="27" dur="3/4" pitch="D#3" vel="0.47"/>
+  <note time="82/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="83/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <!-- 主题旋律 -->
+  <note time="24" dur="5/4" pitch="G#4" vel="0.69"/>
+  <note time="25" dur="5/4" pitch="A#4" vel="0.74"/>
+  <note time="26" dur="5/4" pitch="B4" vel="0.78"/>
+  <note time="27" dur="5/4" pitch="C#5" vel="0.80"/>
+
+  <!-- 第  8 小节 · C#m   -->
+  <!-- 低音八度 -->
+  <note time="28" dur="19/5" pitch="C#2,C#3" vel="0.50"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="28" dur="3/4" pitch="G#3" vel="0.46"/>
+  <note time="85/3" dur="3/4" pitch="C#4" vel="0.39"/>
+  <note time="86/3" dur="3/4" pitch="E4" vel="0.39"/>
+  <note time="29" dur="3/4" pitch="G#3" vel="0.46"/>
+  <note time="88/3" dur="3/4" pitch="C#4" vel="0.39"/>
+  <note time="89/3" dur="3/4" pitch="E4" vel="0.39"/>
+  <note time="30" dur="3/4" pitch="G#3" vel="0.46"/>
+  <note time="91/3" dur="3/4" pitch="C#4" vel="0.39"/>
+  <note time="92/3" dur="3/4" pitch="E4" vel="0.39"/>
+  <note time="31" dur="3/4" pitch="G#3" vel="0.46"/>
+  <note time="94/3" dur="3/4" pitch="C#4" vel="0.39"/>
+  <note time="95/3" dur="3/4" pitch="E4" vel="0.39"/>
+  <!-- 主题旋律 -->
+  <note time="28" dur="9/4" pitch="E5" vel="0.83"/>
+  <note time="30" dur="5/4" pitch="D#5" vel="0.78"/>
+  <note time="31" dur="5/4" pitch="C#5" vel="0.74"/>
+
+  <!-- 第  9 小节 · E     -->
+  <!-- 低音八度 -->
+  <note time="32" dur="19/5" pitch="E2,E3" vel="0.54"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="32" dur="3/4" pitch="B3" vel="0.49"/>
+  <note time="97/3" dur="3/4" pitch="E4" vel="0.41"/>
+  <note time="98/3" dur="3/4" pitch="G#4" vel="0.41"/>
+  <note time="33" dur="3/4" pitch="B3" vel="0.49"/>
+  <note time="100/3" dur="3/4" pitch="E4" vel="0.41"/>
+  <note time="101/3" dur="3/4" pitch="G#4" vel="0.41"/>
+  <note time="34" dur="3/4" pitch="B3" vel="0.49"/>
+  <note time="103/3" dur="3/4" pitch="E4" vel="0.41"/>
+  <note time="104/3" dur="3/4" pitch="G#4" vel="0.41"/>
+  <note time="35" dur="3/4" pitch="B3" vel="0.49"/>
+  <note time="106/3" dur="3/4" pitch="E4" vel="0.41"/>
+  <note time="107/3" dur="3/4" pitch="G#4" vel="0.41"/>
+  <!-- 主题旋律 -->
+  <note time="32" dur="5/4" pitch="E5" vel="0.85"/>
+  <note time="33" dur="5/4" pitch="F#5" vel="0.87"/>
+  <note time="34" dur="9/4" pitch="G#5" vel="0.92"/>
+
+  <!-- 第 10 小节 · A     -->
+  <!-- 低音八度 -->
+  <note time="36" dur="19/5" pitch="A1,A2" vel="0.52"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="36" dur="3/4" pitch="E3" vel="0.48"/>
+  <note time="109/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="110/3" dur="3/4" pitch="C#4" vel="0.40"/>
+  <note time="37" dur="3/4" pitch="E3" vel="0.48"/>
+  <note time="112/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="113/3" dur="3/4" pitch="C#4" vel="0.40"/>
+  <note time="38" dur="3/4" pitch="E3" vel="0.48"/>
+  <note time="115/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="116/3" dur="3/4" pitch="C#4" vel="0.40"/>
+  <note time="39" dur="3/4" pitch="E3" vel="0.48"/>
+  <note time="118/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="119/3" dur="3/4" pitch="C#4" vel="0.40"/>
+  <!-- 主题旋律 -->
+  <note time="36" dur="5/4" pitch="G#5" vel="0.90"/>
+  <note time="37" dur="5/4" pitch="F#5" vel="0.87"/>
+  <note time="38" dur="9/4" pitch="E5" vel="0.83"/>
+
+  <!-- 第 11 小节 · F#m   -->
+  <!-- 低音八度 -->
+  <note time="40" dur="19/5" pitch="F#1,F#2" vel="0.52"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="40" dur="3/4" pitch="C#3" vel="0.48"/>
+  <note time="121/3" dur="3/4" pitch="F#3" vel="0.40"/>
+  <note time="122/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="41" dur="3/4" pitch="C#3" vel="0.48"/>
+  <note time="124/3" dur="3/4" pitch="F#3" vel="0.40"/>
+  <note time="125/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="42" dur="3/4" pitch="C#3" vel="0.48"/>
+  <note time="127/3" dur="3/4" pitch="F#3" vel="0.40"/>
+  <note time="128/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <note time="43" dur="3/4" pitch="C#3" vel="0.48"/>
+  <note time="130/3" dur="3/4" pitch="F#3" vel="0.40"/>
+  <note time="131/3" dur="3/4" pitch="A3" vel="0.40"/>
+  <!-- 主题旋律 -->
+  <note time="40" dur="5/4" pitch="D#5" vel="0.80"/>
+  <note time="41" dur="5/4" pitch="E5" vel="0.83"/>
+  <note time="42" dur="9/4" pitch="C#5" vel="0.78"/>
+
+  <!-- 第 12 小节 · G#7   -->
+  <!-- 低音八度 -->
+  <note time="44" dur="19/5" pitch="G#1,G#2" vel="0.50"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="44" dur="3/4" pitch="D#3" vel="0.46"/>
+  <note time="133/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="134/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <note time="45" dur="3/4" pitch="D#3" vel="0.46"/>
+  <note time="136/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="137/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <note time="46" dur="3/4" pitch="D#3" vel="0.46"/>
+  <note time="139/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="140/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <note time="47" dur="3/4" pitch="D#3" vel="0.46"/>
+  <note time="142/3" dur="3/4" pitch="G#3" vel="0.39"/>
+  <note time="143/3" dur="3/4" pitch="B3" vel="0.39"/>
+  <!-- 主题旋律 -->
+  <note time="44" dur="9/4" pitch="B4" vel="0.74"/>
+  <note time="46" dur="5/4" pitch="C#5" vel="0.76"/>
+  <note time="47" dur="5/4" pitch="B4" vel="0.71"/>
+
+  <!-- 第 13 小节 · C#m   -->
+  <!-- 低音八度 -->
+  <note time="48" dur="19/5" pitch="C#2,C#3" vel="0.48"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="48" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="145/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="146/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <note time="49" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="148/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="149/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <note time="50" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="151/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="152/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <note time="51" dur="3/4" pitch="G#3" vel="0.44"/>
+  <note time="154/3" dur="3/4" pitch="C#4" vel="0.37"/>
+  <note time="155/3" dur="3/4" pitch="E4" vel="0.37"/>
+  <!-- 主题旋律 -->
+  <note time="48" dur="5/4" pitch="A#4" vel="0.69"/>
+  <note time="49" dur="5/4" pitch="B4" vel="0.69"/>
+  <note time="50" dur="9/4" pitch="G#4" vel="0.67"/>
+
+  <!-- 第 14 小节 · F#m   -->
+  <!-- 低音八度 -->
+  <note time="52" dur="19/5" pitch="F#1,F#2" vel="0.44"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="52" dur="3/4" pitch="C#3" vel="0.38"/>
+  <note time="157/3" dur="3/4" pitch="F#3" vel="0.32"/>
+  <note time="158/3" dur="3/4" pitch="A3" vel="0.32"/>
+  <note time="53" dur="3/4" pitch="C#3" vel="0.38"/>
+  <note time="160/3" dur="3/4" pitch="F#3" vel="0.32"/>
+  <note time="161/3" dur="3/4" pitch="A3" vel="0.32"/>
+  <note time="54" dur="3/4" pitch="C#3" vel="0.38"/>
+  <note time="163/3" dur="3/4" pitch="F#3" vel="0.32"/>
+  <note time="164/3" dur="3/4" pitch="A3" vel="0.32"/>
+  <note time="55" dur="3/4" pitch="C#3" vel="0.38"/>
+  <note time="166/3" dur="3/4" pitch="F#3" vel="0.32"/>
+  <note time="167/3" dur="3/4" pitch="A3" vel="0.32"/>
+  <!-- 主题旋律 -->
+  <note time="52" dur="9/4" pitch="E5" vel="0.64"/>
+  <note time="54" dur="9/4" pitch="C#5" vel="0.60"/>
+
+  <!-- 第 15 小节 · C#m  （终止，只写第 1 拍，留余韵到 60s） -->
+  <!-- 低音八度 -->
+  <note time="56" dur="2" pitch="C#2,C#3" vel="0.38"/>
+  <!-- 分解和弦三连音（每拍 3 个 1/3 拍；dur=3/4 保留一点踏板延音，
+      每拍第 1 个音略强，做出三连音的分组脉冲） -->
+  <note time="57" dur="3/4" pitch="G#3" vel="0.31"/>
+  <note time="172/3" dur="3/4" pitch="C#4" vel="0.26"/>
+  <note time="173/3" dur="3/4" pitch="E4" vel="0.26"/>
+  <!-- 主题旋律 -->
+  <note time="56" dur="9/4" pitch="C#5" vel="0.51"/>
+
+</track>

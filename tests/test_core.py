@@ -35,6 +35,7 @@ from musicgen.core.wavio import write_wav  # noqa: E402
 DEMO = ROOT / "examples" / "demo" / "demo.musicproj"
 ENSEMBLE = ROOT / "examples" / "ensemble" / "ensemble.musicproj"
 BAND = ROOT / "examples" / "band" / "band.musicproj"
+MOONLIGHT = ROOT / "examples" / "moonlight" / "moonlight.musicproj"
 
 
 class NoteTests(unittest.TestCase):
@@ -416,6 +417,27 @@ class DrumTests(unittest.TestCase):
         self.assertEqual(len(drums), 1)
         self.assertGreater(drums[0].notes, 50)
         self.assertGreater(drums[0].peak, 0.05)
+
+    def test_moonlight_example_is_exactly_one_minute(self) -> None:
+        """《月光》：60BPM × 15 小节 = 60.00s，三连音用 1/3 拍精确分数。"""
+        if not MOONLIGHT.exists():
+            self.skipTest("示例工程不存在")
+        project = P.load_project(MOONLIGHT)
+        self.assertEqual(project.warnings, [])
+        self.assertEqual(len(project.tracks), 1)
+        notes = project.tracks[0].notes
+        self.assertEqual(len(notes), 226)
+        self.assertAlmostEqual(project.compute_length_seconds(), 60.0, places=2)
+
+        # 第 1 个音符是低音八度，随后是三组 1/3 拍的三连音
+        for offset, expected in enumerate((0.0, 1 / 3, 2 / 3), start=1):
+            self.assertAlmostEqual(notes[offset].time, expected, places=6)
+        self.assertEqual(notes[1].pitches, [56])  # G#3
+
+        result = render_project(project)
+        self.assertAlmostEqual(result.duration, 60.0, delta=0.05)
+        self.assertEqual(result.notes_rendered, 226)
+        self.assertAlmostEqual(result.peak, 10 ** (-1 / 20), delta=0.01)
 
 
 class WavTests(unittest.TestCase):

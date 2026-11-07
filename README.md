@@ -31,6 +31,7 @@ py -3 -m pip install -r requirements.txt   # numpy / soundfile / sounddevice
 py -3 -m musicgen samples fetch                     # 下载全部音源（六件乐器，约 8MB）
 py -3 -m musicgen render examples\twinkle\twinkle.musicproj -o twinkle.wav  # 《小星星》完整编曲
 py -3 -m musicgen render examples\band\band.musicproj -o band.wav          # 竖笛 + 吉他 + 鼓
+py -3 -m musicgen render examples\moonlight\moonlight.musicproj -o moonlight.wav  # 贝多芬《月光》1 分钟
 py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen render examples\ensemble\ensemble.musicproj -o trio.wav   # 四重奏示例
 py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
