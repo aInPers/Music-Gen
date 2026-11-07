@@ -11,6 +11,8 @@ T = theme.PALETTE
 
 
 class OutputPanel(tk.Frame):
+    PREFERRED_HEIGHT = 200
+
     def __init__(self, master: tk.Misc, on_clear: Callable[[], None] | None = None) -> None:
         super().__init__(master, bg=T["panel"])
         self.header = widgets.PanelHeader(self, "输出")

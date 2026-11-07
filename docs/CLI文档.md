@@ -47,7 +47,7 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | 选项 | 说明 |
 | --- | --- |
 | `-h`, `--help` | 显示帮助；子命令也一样：`python -m musicgen render -h` |
-| `-V`, `--version` | 打印 `MusicGen 1.7.0` |
+| `-V`, `--version` | 打印 `MusicGen <版本号>` |
 
 ---
 

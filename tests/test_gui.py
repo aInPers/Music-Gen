@@ -178,6 +178,104 @@ class GuiTests(unittest.TestCase):
 
         self.app.open_project(str(self.project_path))  # 复原，后面的用例继续用示例工程
 
+    def test_toolbar_states_and_commands(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+        bar = self.app.toolbar
+
+        # 打开工程后：编辑/渲染类可用，播放/停止/导出还不行（没有渲染结果）
+        self.assertTrue(bar.btn_apply.enabled)
+        self.assertTrue(bar.btn_render.enabled)
+        self.assertTrue(bar.btn_refresh.enabled)
+        self.assertFalse(bar.btn_play.enabled)
+        self.assertFalse(bar.btn_stop.enabled)
+        self.assertFalse(bar.btn_export.enabled)
+        self.assertEqual(bar.btn_play.icon, "play")
+
+        # 有结果且在播放：播放键变暂停图标
+        bar.set_state(has_project=True, has_result=True, busy=False, playing=True)
+        self.assertTrue(bar.btn_play.enabled)
+        self.assertTrue(bar.btn_export.enabled)
+        self.assertEqual(bar.btn_play.icon, "pause")
+        self.assertTrue(bar.playing)
+
+        # 按钮真的能触发命令；禁用时不触发
+        fired: list[str] = []
+        bar.btn_new.set_command(lambda: fired.append("new"))
+        bar.btn_new.invoke()
+        bar.btn_new.set_enabled(False)
+        bar.btn_new.invoke()
+        self.assertEqual(fired, ["new"])
+
+        bar.set_state(has_project=True, has_result=False, busy=False, playing=False)
+        self.app._sync_toolbar()
+
+    def test_all_toolbar_buttons_wired(self) -> None:
+        """命令条不能出现「看着能点、点了没反应」的按钮。"""
+        bar = self.app.toolbar
+        names = ("btn_new", "btn_open", "btn_apply", "btn_render", "btn_play",
+                 "btn_stop", "btn_export", "btn_samples", "btn_refresh")
+        for name in names:
+            with self.subTest(button=name):
+                button = getattr(bar, name)
+                self.assertIsNotNone(button._command, f"{name} 没有绑定命令")
+
+    def test_drag_docking(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.dock_panel("properties", "right")
+        self.app.update()
+
+        host = self.app.hsplit
+        width, height = host.winfo_width(), host.winfo_height()
+        if width < 200 or height < 200:
+            self.skipTest("窗口还没有实际尺寸")
+        hx, hy = host.winfo_rootx(), host.winfo_rooty()
+        # 用例之间共享同一个窗口，结束时把底部区还原到原来的分栏位置
+        sash_before = (list(self.app.center_host.sash_coord(0))
+                       if len(self.app.center_host.panes()) >= 2 else None)
+
+        drag = self.app.drag_dock
+        drag.start("properties", "属性", hx + width - 40, hy + 30)
+        drag.move(hx + 12, hy + height // 2)   # 拖到左边缘
+        area = drag.finish(hx + 12, hy + height // 2)
+        self.assertEqual(area, "left")
+        self.app.update()
+        self.assertEqual(self.app.dock_manager.area_of("properties"), "left")
+        self.assertIsNotNone(self.app.dock_manager.panel("properties"))
+        self.assertIsNone(drag._ghost)          # 浮窗已清理
+        self.assertIsNone(drag._zone)
+
+        # 拖到中间不该吸附
+        self.assertIsNone(drag.area_at(hx + width // 2, hy + height // 2))
+        # 拖到窗口外也不吸附
+        self.assertIsNone(drag.area_at(hx - 60, hy + 10))
+
+        # 已经在这一区时，再拖回同一区不算变化（按真实拖拽时序：start -> move -> finish）
+        drag.start("properties", "属性", hx + 60, hy + 20)
+        drag.move(hx + 12, hy + height // 2)
+        self.assertIsNone(drag.area_at(hx + 12, hy + height // 2))
+        self.assertIsNone(drag.finish(hx + 12, hy + height // 2))
+        self.app.update()
+        self.assertEqual(self.app.dock_manager.area_of("properties"), "left")
+
+        # 拖到底部
+        drag.start("properties", "属性", hx + 60, hy + 20)
+        drag.move(hx + width // 2, hy + height - 8)
+        self.assertEqual(drag.finish(hx + width // 2, hy + height - 8), "bottom")
+        self.app.update()
+        self.assertEqual(self.app.dock_manager.area_of("properties"), "bottom")
+        # 底部区默认只有 150px，拖入第二个面板后应自动撑大，不能把两个都压成窄条
+        self.app.update_idletasks()
+        bottom = self.app.dock_manager.containers["bottom"]
+        self.assertGreater(bottom.winfo_height(), 200)
+        self.assertGreater(self.app.dock_manager.panel("properties").winfo_height(), 120)
+        self.assertGreater(self.app.dock_manager.panel("output").winfo_height(), 80)
+
+        self.app.dock_panel("properties", "right")
+        if sash_before is not None and len(self.app.center_host.panes()) >= 2:
+            self.app.center_host.sash_place(0, 0, int(sash_before[1]))
+        self.app.update()
+
     def test_switch_instrument(self) -> None:
         self.app.open_project(str(self.project_path))
         self.app.select_track(1)

@@ -30,6 +30,9 @@ class Tooltip:
         widget.bind("<Leave>", self._hide, add="+")
         widget.bind("<ButtonPress>", self._hide, add="+")
 
+    def set_text(self, text: str) -> None:
+        self.text = text
+
     def _schedule(self, _event=None) -> None:
         self._cancel()
         self._after = self.widget.after(400, self._show)
@@ -89,14 +92,17 @@ class ToolButton(tk.Canvas):
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
         self.bind("<Button-1>", self._on_click)
-        if tooltip:
-            Tooltip(self, tooltip)
+        self._tooltip = Tooltip(self, tooltip) if tooltip else None
         self._render()
 
     # ---- 状态 ---------------------------------------------------------
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    @property
+    def icon(self) -> str | None:
+        return self._icon
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
@@ -109,6 +115,10 @@ class ToolButton(tk.Canvas):
 
     def set_command(self, command: Callable[[], None]) -> None:
         self._command = command
+
+    def set_tooltip(self, text: str) -> None:
+        if self._tooltip is not None:
+            self._tooltip.set_text(text)
 
     def configure_state(self, enabled: bool) -> None:
         self.set_enabled(enabled)
@@ -123,6 +133,10 @@ class ToolButton(tk.Canvas):
         self._render()
 
     def _on_click(self, _event=None) -> None:
+        self.invoke()
+
+    def invoke(self) -> None:
+        """走一遍点击逻辑（脚本与测试也能触发）。"""
         if self._enabled and self._command:
             self._command()
 
@@ -181,6 +195,10 @@ class PanelHeader(tk.Frame):
 
     def set_title(self, text: str) -> None:
         self._title.configure(text=text)
+
+    def drag_targets(self) -> list[tk.Widget]:
+        """可以作为拖动把手的控件：整条标题栏 + 标题文字（右侧按钮区不算）。"""
+        return [self, self._title]
 
 
 class ScrollArea(tk.Frame):

@@ -30,6 +30,7 @@ class DockManager:
         on_created: Callable[[str, tk.Widget], None],
         center: tk.Widget,
         on_layout_changed: Callable[[], None] | None = None,
+        dragger: Callable[[tk.Widget, str, str], None] | None = None,
     ) -> None:
         self.containers = containers
         self.paned = paned
@@ -39,6 +40,7 @@ class DockManager:
         self.on_created = on_created
         self.center = center
         self.on_layout_changed = on_layout_changed
+        self.dragger = dragger
 
         self.panels: dict[str, tk.Widget] = {}
         self.areas: dict[str, str] = {}
@@ -66,6 +68,7 @@ class DockManager:
                 return
             self._destroy(key)
         self._create(key, area)
+        self._fit_area(area)
         self._notify()
 
     def close(self, key: str) -> None:
@@ -115,6 +118,7 @@ class DockManager:
         self.areas[key] = area
         self._ensure_pane(area)
         self._attach_menu(key, widget)
+        self._attach_drag(key, widget)
         self.on_created(key, widget)
 
     def _destroy(self, key: str) -> None:
@@ -141,6 +145,54 @@ class DockManager:
         tallest = max(panes, key=lambda pane: heights[pane])
         for pane in panes:
             container.paneconfigure(pane, stretch="always" if pane is tallest else "never")
+
+    def _fit_area(self, area: str) -> None:
+        """停靠落地后让目标区装得下所有面板，并按期望高度重排内部 sash。
+
+        底部区默认只有 150px，拖进第二个面板时 Tk 会把两个一起压成窄条。这里按
+        各面板 ``PREFERRED_HEIGHT`` 之和算出需要的高度（最多占主区 55%），必要时
+        把整个停靠区撑大，再显式摆放容器内部的 sash，避免被平均压扁。
+        """
+        container = self.containers[area]
+        container.update_idletasks()
+        panes = [container.nametowidget(str(item)) for item in container.panes()]
+        if not panes:
+            return
+        prefs = [max(100, int(getattr(pane, "PREFERRED_HEIGHT", 200))) for pane in panes]
+        need = sum(prefs) + 8 * (len(panes) - 1)
+        if area == "bottom":
+            host = self.paned[area]
+            total = host.winfo_height()
+            if total > 240 and len(host.panes()) >= 2:
+                cap = max(220, int(total * 0.55))
+                target = min(max(need, 150), cap)
+                if target > container.winfo_height() + 6:
+                    try:
+                        # pane 的 height 是持久的：后续 <Configure> 重排会按它算；
+                        # 单独用 sash_place 挪位置会被下一次重排丢掉。
+                        host.paneconfigure(container, height=target)
+                    except tk.TclError:  # pragma: no cover - 尚未布局完成
+                        pass
+                    self.sizes[area] = target
+        self._spread(container, prefs)
+
+    @staticmethod
+    def _spread(container: tk.PanedWindow, prefs: list[int]) -> None:
+        """≥2 个面板时按期望高度比例摆放内部 sash。"""
+        if len(prefs) < 2:
+            return
+        container.update_idletasks()
+        total = container.winfo_height()
+        if total < 120:
+            return
+        scale = total / max(sum(prefs), 1)
+        y = 0
+        for index in range(len(prefs) - 1):
+            y += int(prefs[index] * scale)
+            try:
+                container.sash_place(index, 0, y)
+            except tk.TclError:  # pragma: no cover
+                return
 
     def _area_is_empty(self, area: str) -> bool:
         container = self.containers[area]
@@ -199,6 +251,13 @@ class DockManager:
         menu.add_separator()
         menu.add_command(label="关闭", command=lambda: self.close(key))
         header.add_menu_button(menu, "停靠 / 关闭")
+
+    def _attach_drag(self, key: str, widget: tk.Widget) -> None:
+        """标题栏按住就能拖动停靠（见 gui/dragdock.py）。"""
+        header = getattr(widget, "header", None)
+        if header is None or self.dragger is None:
+            return
+        self.dragger(header, key, self.titles.get(key, key))
 
     def apply_measured_sizes(self, sashes) -> None:
         """恢复分栏位置。新格式 {"main": [[x, y]...], "areas": {area: [[x, y]...]}}，

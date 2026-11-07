@@ -30,6 +30,7 @@ from ..core.wavio import write_wav
 from ..samples import fetch
 from . import layout, menubar, theme, widgets
 from .docking import DockManager
+from .dragdock import AREA_NAMES, DockDrag
 from .info import ProjectInfoPage
 from .newproject import NewProjectDialog
 from .notepanel import NotePanel
@@ -124,9 +125,12 @@ class MusicGenApp(tk.Tk):
         widgets.Separator(self, color=T["border_soft"]).pack(side="top", fill="x")
 
         self.toolbar = ToolBar(self, {
+            "new": self.on_new_project,
             "open": self.on_open,
+            "apply": self.on_apply,
             "render": self.on_render,
             "play": self.on_play,
+            "stop": self.on_stop_playback,
             "export": self.on_export,
             "samples": self.on_samples,
             "refresh": self.on_refresh,
@@ -208,7 +212,9 @@ class MusicGenApp(tk.Tk):
             on_created=self._on_panel_created,
             center=self.center_host,
             on_layout_changed=self._schedule_save_layout,
+            dragger=lambda header, key, title: self.drag_dock.bind(header, key, title),
         )
+        self.drag_dock = DockDrag(self, lambda: self.dock_manager, self._dock_by_drag)
         self.dock_manager.apply_state(self._ui.get("docks"), self._ui.get("sizes"))
         self._sync_view_menu()
 
@@ -298,6 +304,12 @@ class MusicGenApp(tk.Tk):
         self.dock_manager.dock(key, area)
         self._sync_view_menu()
 
+    def _dock_by_drag(self, key: str, area: str) -> None:
+        """拖拽停靠落地后的回调：停靠、刷新菜单、在状态栏说一声。"""
+        title = self.dock_manager.titles.get(key, key)
+        self.dock_panel(key, area)
+        self.status.set_message(f"「{title}」已停靠到{AREA_NAMES.get(area, area)}")
+
     def reset_layout(self) -> None:
         self.dock_manager.reset()
         self._sync_view_menu()
@@ -342,15 +354,25 @@ class MusicGenApp(tk.Tk):
 
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self._busy = busy
-        self.toolbar.set_busy(busy)
+        self._sync_toolbar()
         if busy:
             self.status.set_progress(0.0)
             self.status.set_message(message or "处理中…")
         else:
             has_result = self.result is not None
-            self.toolbar.btn_export.set_enabled(has_result)
             self.transport.set_enabled(has_result)
             self.status.set_progress(None)
+
+    def _sync_toolbar(self) -> None:
+        """工具栏按钮的唯一状态来源：有没有工程、有没有结果、是否在忙、是否在播。"""
+        if not hasattr(self, "toolbar"):
+            return
+        self.toolbar.set_state(
+            has_project=self.project is not None,
+            has_result=self.result is not None,
+            busy=bool(self._busy),
+            playing=bool(getattr(self.player, "playing", False)),
+        )
 
     def _project_instruments(self) -> list[str]:
         """工程里实际用到的、需要下载采样的乐器（按注册顺序）。"""
@@ -448,8 +470,7 @@ class MusicGenApp(tk.Tk):
         self.status.set_progress(None)
         self.title(f"{project.path.name} — MusicGen")
         self._refresh_toolbar_info()
-        self.toolbar.btn_render.set_enabled(True)
-        self.toolbar.btn_export.set_enabled(False)
+        self._sync_toolbar()
 
         self.roll.set_project(project, self.selected)
         self.info.set_project(project)
@@ -796,12 +817,14 @@ class MusicGenApp(tk.Tk):
             self._open_in_system_player()
             return
         self.transport.set_playing(True)
+        self._sync_toolbar()
         self.status.set_message("预览中…")
         self._start_tick()
 
     def _pause_playback(self) -> None:
         self.player.pause()
         self.transport.set_playing(False)
+        self._sync_toolbar()
         self._stop_tick()
         self.status.set_message(
             f"已暂停 · {_fmt_time(self.player.position)} / {_fmt_time(self.player.duration)}"
@@ -815,6 +838,7 @@ class MusicGenApp(tk.Tk):
         if reset:
             self.player.seek(0.0)
         self.transport.set_playing(False)
+        self._sync_toolbar()
         self._stop_tick()
         self.roll.set_playhead(None)
         self.wave.set_playhead(None)
@@ -842,6 +866,7 @@ class MusicGenApp(tk.Tk):
         if not self.player.playing:
             self._play_timer = None
             self.transport.set_playing(False)
+            self._sync_toolbar()
             self.transport.update_time(self.player.position, self.player.duration)
             if self.player.position >= self.player.duration - 0.05:
                 self.roll.set_playhead(None)

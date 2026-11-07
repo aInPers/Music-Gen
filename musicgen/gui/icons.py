@@ -113,26 +113,46 @@ def draw(canvas: tk.Canvas, kind: str, cx: float, cy: float, size: float, color:
     elif kind == "stop":
         canvas.create_rectangle(px(4.5), py(4.5), px(11.5), py(11.5), fill=color, outline="")
     elif kind == "export":
-        canvas.create_line(px(8), py(3), px(8), py(9.5), fill=color, width=max(1, int(1.6 * s)))
+        # 向右箭头穿过一条边界 = 「导出到外部」，与向下箭头的「下载音源」区分开
+        width = max(1, int(1.7 * s))
+        canvas.create_line(px(2.8), py(8), px(10.4), py(8), fill=color, width=width)
         canvas.create_polygon(
-            px(4.8), py(9), px(11.2), py(9), px(8), py(12.6), fill=color, outline=""
+            px(9.0), py(4.6), px(13.2), py(8), px(9.0), py(11.4), fill=color, outline=""
         )
-        canvas.create_line(px(3.5), py(14), px(12.5), py(14), fill=color, width=max(1, int(1.6 * s)))
+        canvas.create_line(px(13.6), py(3.0), px(13.6), py(13.0), fill=color, width=width)
     elif kind == "open":
         canvas.create_polygon(
             px(2), py(4), px(7), py(4), px(8.5), py(6), px(14), py(6),
             px(14), py(12.5), px(2), py(12.5), fill="", outline=color, width=max(1, int(1.3 * s)),
         )
+    elif kind == "new":
+        canvas.create_polygon(
+            px(3.2), py(2.6), px(9.4), py(2.6), px(12.8), py(6.0),
+            px(12.8), py(13.4), px(3.2), py(13.4), fill="", outline=color,
+            width=max(1, int(1.3 * s)),
+        )
+        canvas.create_line(px(9.4), py(2.6), px(9.4), py(6.0), px(12.8), py(6.0),
+                           fill=color, width=max(1, int(1.1 * s)))
+        canvas.create_line(px(8.0), py(8.2), px(8.0), py(11.8), fill=color,
+                           width=max(1, int(1.5 * s)))
+        canvas.create_line(px(6.2), py(10.0), px(9.8), py(10.0), fill=color,
+                           width=max(1, int(1.5 * s)))
     elif kind == "download":
         canvas.create_line(px(8), py(3), px(8), py(9), fill=color, width=max(1, int(1.5 * s)))
         canvas.create_polygon(px(5), py(8.2), px(11), py(8.2), px(8), py(11.8), fill=color, outline="")
         canvas.create_line(px(3.5), py(13.5), px(12.5), py(13.5), fill=color, width=max(1, int(1.5 * s)))
     elif kind == "refresh":
-        canvas.create_arc(
-            px(3.5), py(3.5), px(12.5), py(12.5), start=40, extent=280,
-            style="arc", outline=color, width=max(1, int(1.5 * s)),
-        )
-        canvas.create_polygon(px(11), py(5), px(12.8), py(2.6), px(8.6), py(3.2), fill=color, outline="")
+        # 两段圆弧 + 两个三角箭头 = 循环刷新；单段弧在 16px 下会看成字母 C
+        width = max(1, int(1.7 * s))
+        for start in (45, 225):
+            canvas.create_arc(
+                px(3.2), py(3.2), px(12.8), py(12.8), start=start, extent=110,
+                style="arc", outline=color, width=width,
+            )
+        canvas.create_polygon(px(10.8), py(2.6), px(13.6), py(3.2), px(11.2), py(5.6),
+                              fill=color, outline="")
+        canvas.create_polygon(px(5.2), py(10.4), px(2.4), py(12.8), px(4.8), py(13.4),
+                              fill=color, outline="")
     elif kind == "gear":
         canvas.create_oval(px(5.5), py(5.5), px(10.5), py(10.5), outline=color,
                            width=max(1, int(1.4 * s)))
