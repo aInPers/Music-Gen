@@ -16,6 +16,13 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# 注册表测试隔离：必须在 import musicgen 之前设置环境变量
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import _registry_env  # noqa: F401
+except ImportError:  # pragma: no cover - 某些运行方式下 tests/ 不在 sys.path
+    pass
+
 from musicgen.core import project as P  # noqa: E402
 from musicgen.core.notes import (  # noqa: E402
     PitchError,

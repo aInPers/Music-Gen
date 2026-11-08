@@ -135,6 +135,9 @@ def build(root: tk.Misc, app) -> MenuBar:
     edit_menu.add_command(label="删除选中音轨…", accelerator="Ctrl+Shift+Delete",
                           command=app.on_delete_track)
     edit_menu.add_separator()
+    edit_menu.add_command(label="乐器注册表…", accelerator="Ctrl+Shift+G",
+                          command=app.on_instrument_registry)
+    edit_menu.add_separator()
     edit_menu.add_command(label="清空输出", command=app.clear_output)
 
     # 视图：文档页 + 工具窗口（勾选式）+ 布局

@@ -18,6 +18,8 @@
 - **新建工程向导**：名称/位置/速度/采样率/拍号/模板（示例 or 空白），创建即打开
 - **轨道随手加改**：`musicgen track add/edit/remove`、`note add/set/del` 直接改工程且保留 XML 注释；
   界面用「文件 → 新建轨道…」或 `Ctrl+Shift+T` 建轨，属性面板改参数
+- **乐器注册表可自行增删**：乐器清单存在 `~/.musicgen/instruments.json`，`musicgen instrument add flute --name 长笛 --gm flute` 即可加一件 GM 音色；
+  界面「编辑 → 乐器注册表…」也能添加/删除/恢复默认，改完下拉框立即刷新
 - **单独查看一条音轨**：`Ctrl+Shift+V` 打开独立窗口，表格列出全部音符、点行跳到卷帘；
   窗口内可单独试听这一轨并导出分轨 WAV；`Ctrl+Shift+I` 让卷帘只画选中轨
 - **逐个音符编辑**：卷帘里点中任意一小段，右下面板直接改起始/时长/音高/力度，还能复制、删除、逐个跳
@@ -91,6 +93,7 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 | `track list/add/edit/remove` | 新增 / 编辑 / 删除 / 列出音轨 |
 | `note list/add/set/del` | 增删改查音轨里的音符 |
 | `samples fetch/list` | 下载/查看音源 |
+| `instrument list/add/remove/reset` | 增删查改用户乐器注册表 |
 | `gui [proj]` | 启动界面 |
 
 完整参数表、真实输出、退出码与报错对照、批量脚本示例：[docs/CLI文档.md](docs/CLI文档.md)。
@@ -111,6 +114,7 @@ py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
 
 新建轨道：`Ctrl+Shift+T` 或「文件 → 新建轨道…」，也可以在资源管理器里右键。
 删除轨道：右键或 `Ctrl+Shift+Delete`（确认后只移除工程引用，音轨文件保留）。
+管理乐器：`Ctrl+Shift+G` 打开注册表，添加时填注册键、中文名与 FluidR3 GM 包名即可。
 单独查看：右键 →「单独查看这条音轨…」；表格点行可跳到卷帘，窗口里能单独试听/导出这一轨。
 
 四个工具窗口都能换停靠位置：**按住标题栏拖到窗口左 / 右 / 下边缘**，蓝色高亮区出现后松手即可；

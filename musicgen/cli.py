@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from . import __version__
+from .cli_instruments import RegistryError, register_instrument_commands
 from .cli_tracks import TrackEditError, register_track_commands
 from .core.project import ProjectError, create_project, describe, load_project
 from .core.render import render_project
@@ -369,6 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_gui.set_defaults(func=cmd_gui)
 
     register_track_commands(sub)
+    register_instrument_commands(sub)
     return parser
 
 
@@ -385,6 +387,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.func(args))
     except TrackEditError as exc:
         print(f"操作失败：{exc}", file=sys.stderr)
+        return 1
+    except RegistryError as exc:
+        print(f"注册表错误：{exc}", file=sys.stderr)
         return 1
     except ProjectError as exc:
         print("工程文件有问题：", file=sys.stderr)

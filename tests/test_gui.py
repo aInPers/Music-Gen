@@ -17,6 +17,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# 注册表测试隔离：必须在 import musicgen 之前设置环境变量
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import _registry_env  # noqa: F401
+except ImportError:  # pragma: no cover - 某些运行方式下 tests/ 不在 sys.path
+    pass
+
 # 测试期间把界面布局写到临时文件，别动用户的 ~/.musicgen/ui.json
 _UI_TMP = Path(tempfile.mkdtemp(prefix="musicgen_ui_"))
 os.environ["MUSICGEN_UI"] = str(_UI_TMP / "ui.json")
@@ -228,7 +235,7 @@ class GuiTests(unittest.TestCase):
         bar = self.app.toolbar
         names = ("btn_new", "btn_new_track", "btn_delete_track", "btn_open", "btn_apply",
                  "btn_render", "btn_play", "btn_stop", "btn_view_track", "btn_isolate",
-                 "btn_export", "btn_samples", "btn_refresh")
+                 "btn_export", "btn_samples", "btn_instruments", "btn_refresh")
         for name in names:
             with self.subTest(button=name):
                 button = getattr(bar, name)
@@ -260,7 +267,47 @@ class GuiTests(unittest.TestCase):
         self.app.menus["edit"].invoke(_menu_index(self.app.menus["edit"], "清空输出"))
         self.app.goto_page("roll")
 
+    def test_instrument_registry_dialog_refreshes_dropdown(self) -> None:
+        from musicgen.gui import instrumentregistry as ir
+        from musicgen.samples import fetch, registry
+
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+        dialog = ir.InstrumentRegistryDialog(
+            self.app, on_changed=self.app.refresh_instrument_views
+        )
+        try:
+            self.assertEqual(len(dialog.tree.get_children()), 7)
+            registry.add(registry.load(), {
+                "key": "flute", "label": "长笛", "aliases": ["长笛"],
+                "kind": "sample", "gm": "flute", "midi_low": 60,
+                "midi_high": 96, "gain": 8.0,
+            })
+            dialog._changed("测试添加")
+            self.app.update()
+            self.assertIn("flute", fetch.instrument_keys())
+            props = self.app.dock_manager.panel("properties")
+            self.assertIn("flute", [value for value, _ in props.instrument._items])
+
+            original = ir.messagebox.askyesno
+            ir.messagebox.askyesno = lambda *_a, **_k: True
+            try:
+                dialog.tree.selection_set("flute")
+                dialog._remove()
+            finally:
+                ir.messagebox.askyesno = original
+            self.app.update()
+            self.assertNotIn("flute", fetch.instrument_keys())
+            self.assertNotIn("flute", [value for value, _ in props.instrument._items])
+        finally:
+            registry.reset()
+            fetch.reload_registry()
+            dialog.destroy()
+            self.app.refresh_instrument_views()
+
     def test_track_management_menu_entries(self) -> None:
+        self.assertIsNotNone(_menu_index(self.app.menus["edit"], "乐器注册表…"))
+        self.assertIsNotNone(getattr(self.app.toolbar, "btn_instruments")._command)
         self.assertIsNotNone(_menu_index(self.app.menus["edit"], "删除选中音轨…"))
         self.assertIsNotNone(_menu_index(self.app.menus["view"], "单独查看这条音轨…"))
         self.assertIsNotNone(_menu_index(self.app.menus["view"], "只看选中音轨"))

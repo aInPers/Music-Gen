@@ -43,6 +43,7 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | [`gui`](#10-gui--图形界面) | 启动桌面界面 | 打开工程时按需 |
 | [`track`](#11-track--note--轨道与音符编辑) | 新增 / 编辑 / 删除 / 列出音轨 | 不需要 |
 | [`note`](#11-track--note--轨道与音符编辑) | 增删改查音轨里的音符 | 不需要 |
+| [`instrument`](#12-instrument--乐器注册表) | 增删查改用户乐器注册表 | 不需要 |
 
 全局选项：
 
@@ -74,6 +75,7 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | --- | --- | --- |
 | `MUSICGEN_SAMPLES` | 音源缓存根目录 | 仓库下 `samples_cache/`；非仓库布局时用 `~/.musicgen/samples` |
 | `MUSICGEN_UI` | 界面布局文件路径（只有 GUI 用） | `~/.musicgen/ui.json` |
+| `MUSICGEN_INSTRUMENTS` | 乐器注册表 JSON 路径（CLI 与 GUI 共用） | `~/.musicgen/instruments.json` |
 
 优先级：命令行 `--cache-dir` > `MUSICGEN_SAMPLES` > 默认目录。
 
@@ -504,7 +506,69 @@ python -m musicgen note del songs\Song\Song.musicproj --track Guitar --index 2
 
 ---
 
-## 12. 常见工作流
+## 12. `instrument` — 管理乐器注册表
+
+乐器清单**不再写死在代码里**：默认 7 件（6 件 FluidR3 GM 采样 + 内置鼓组）作为
+初始内容写进 JSON 注册表，之后可以增删任意条目，命令行与界面读写的是同一个文件。
+
+### 12.1 文件位置
+
+默认 `~/.musicgen/instruments.json`，用 `MUSICGEN_INSTRUMENTS` 覆盖（见 §3.2）。
+首次运行自动创建；文件损坏时回退内置默认且**不覆盖原文件**，用 `instrument reset` 可重写。
+`instrument path` 打印当前路径。
+
+### 12.2 命令一览
+
+| 命令 | 作用 |
+| --- | --- |
+| `instrument list` | 列出所有乐器：键 / 名称 / 类型 / 音域 / 采样状态 / 增益 / 别名 |
+| `instrument path` | 打印注册表文件路径 |
+| `instrument add <key> --name 中文名 --gm 包名` | 注册一件采样乐器 |
+| `instrument remove <key>` | 删除条目（**不删采样缓存**） |
+| `instrument reset` | 恢复内置默认 7 件（自定义条目会丢失） |
+
+### 12.3 添加乐器
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `--name` | 必填 | 中文名，会自动成为别名 |
+| `--gm` | — | FluidR3 GM 音色包名，如 `flute`；自动生成 4 个下载镜像 |
+| `--url` | — | 自定义地址，可重复/逗号分隔，需含 `{name}` 与 `{ext}`；与 `--gm` 二选一 |
+| `--alias` | — | 额外别名，可重复/逗号分隔 |
+| `--low` / `--high` | 21 / 108 | MIDI 音域（0–127） |
+| `--gain` | 10.0 | 采样电平补偿倍数，声音偏小就调大 |
+| `--range-label` / `--title` | 空 | 列表里显示的说明文字 |
+| `--force` | 关 | 覆盖同名注册键 |
+
+```bat
+python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96 --alias 长笛声部 --gain 8.5
+python -m musicgen samples fetch --instrument flute
+python -m musicgen track add songs\Song\Song.musicproj --name Flute --instrument 长笛声部
+```
+
+注册后立刻生效：界面属性面板的乐器下拉框会刷新，工程里可以直接写中文名或别名。
+采样还没下载时渲染会回退内置合成器（与其它乐器一致）。
+
+### 12.4 删除与恢复
+
+```bat
+python -m musicgen instrument remove flute
+python -m musicgen instrument reset
+```
+
+删除只改注册表：已经下载的采样缓存保留，工程里继续写这个名字会走合成器兜底。
+内置乐器（含 `drums`）也能删，`reset` 可找回；删除内置鼓组后鼓谱不再按鼓件合成。
+
+### 12.5 注意事项
+
+* 注册键只允许小写字母 / 数字 / 下划线 / 连字符；音域必须在 0–127 且低音 ≤ 高音。
+* 出错统一输出「注册表错误：…」到 stderr，退出码 `1`；参数缺失由 argparse 返回 `2`。
+* 界面入口：编辑 → 乐器注册表… / 工具栏齿轮按钮 / `Ctrl+Shift+G`，改动实时刷新下拉框。
+* 自定义乐器的增益写在注册表里；内置 6 件仍保留代码中的校准值作为兜底。
+
+---
+
+## 13. 常见工作流
 
 **第一次跑通**
 
@@ -558,9 +622,9 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 13. 提示信息对照表
+## 14. 提示信息对照表
 
-### 13.1 工程解析（退出码 2）
+### 14.1 工程解析（退出码 2）
 
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
@@ -576,7 +640,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `工程里没有任何 <track>` | 一条音轨都没引用 | 加 `<track file="…"/>` |
 | `缺少 file 属性` | `<track>` 没写 `file` | 补上音轨文件路径 |
 
-### 13.2 忽略即警告（退出码 0，但值没生效）
+### 14.2 忽略即警告（退出码 0，但值没生效）
 
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
@@ -588,7 +652,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `非常用采样率 22050，仍会使用` | `sampleRate` 不在推荐表里 | 一般 44100 或 48000 |
 | `N 个音符起点超出循环周期 X 拍，不会被播放` | `loopLen` 比内容短 | 加大 `loopLen` 或把音符挪回周期内 |
 
-### 13.3 渲染警告（stderr，前缀 `!`）
+### 14.3 渲染警告（stderr，前缀 `!`）
 
 | 提示 | 含义 | 处理 |
 | --- | --- | --- |
@@ -600,7 +664,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 14. 与 GUI 的能力对照
+## 15. 与 GUI 的能力对照
 
 | 能力 | CLI | GUI |
 | --- | --- | --- |
@@ -608,6 +672,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | 试听 | 导出后用播放器打开 | 传输条直接播（`空格`） |
 | 新建工程 | `init` | `Ctrl+N` 向导（含浏览目录） |
 | 新增轨道 | `track add` | 文件 → 新建轨道… / `Ctrl+Shift+T` 对话框 |
+| 管理乐器注册表 | `instrument list/add/remove/reset` | 编辑 → 乐器注册表… / `Ctrl+Shift+G` |
 | 编辑轨道 / 音符 | `track edit`、`note add/set/del` | 属性面板 / 音符面板，应用即写回 |
 | 改工程参数 | 编辑 XML | 属性面板 / 音符面板，应用即写回 |
 | 校验 | `validate` | 载入时自动校验，问题进输出窗口 |
@@ -618,7 +683,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 15. 速查卡
+## 16. 速查卡
 
 ```bat
 :: 看版本 / 帮助
@@ -645,6 +710,12 @@ python -m musicgen track list songs\Song\Song.musicproj
 python -m musicgen track add songs\Song\Song.musicproj --name Guitar --instrument guitar
 python -m musicgen note add songs\Song\Song.musicproj --track Guitar --time 0 --dur 1 --pitch C4
 python -m musicgen track edit songs\Song\Song.musicproj --track 1 --gain -6dB
+
+:: 乐器注册表
+python -m musicgen instrument list
+python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96
+python -m musicgen instrument remove flute
+python -m musicgen instrument reset
 
 :: 界面
 py -3 -m musicgen gui songs\Song\Song.musicproj

@@ -33,6 +33,7 @@ from . import layout, menubar, theme, widgets
 from .docking import DockManager
 from .dragdock import AREA_NAMES, DockDrag
 from .info import ProjectInfoPage
+from .instrumentregistry import InstrumentRegistryDialog
 from .newproject import NewProjectDialog
 from .newtrack import NewTrackDialog
 from .notepanel import NotePanel
@@ -135,6 +136,7 @@ class MusicGenApp(tk.Tk):
             "delete_track": self.on_delete_track,
             "view_track": self.on_view_track,
             "isolate": self.on_toggle_isolate,
+            "instruments": self.on_instrument_registry,
             "open": self.on_open,
             "apply": self.on_apply,
             "render": self.on_render,
@@ -256,6 +258,7 @@ class MusicGenApp(tk.Tk):
         self.bind("<Control-Shift-KeyPress-T>", lambda _e: self.on_new_track())
         self.bind("<Control-Shift-KeyPress-V>", lambda _e: self.on_view_track())
         self.bind("<Control-Shift-KeyPress-I>", lambda _e: self.on_toggle_isolate())
+        self.bind("<Control-Shift-KeyPress-G>", lambda _e: self.on_instrument_registry())
         self.bind("<Control-Shift-Delete>", lambda _e: self.on_delete_track())
         self.bind("<Control-r>", lambda _e: self.on_render())
         self.bind("<Control-s>", lambda _e: self.on_export())
@@ -434,6 +437,24 @@ class MusicGenApp(tk.Tk):
             items.append(f"{len(self.project.tracks)} 音轨")
             items.append(f"时长 {_fmt_time(self.project.compute_length_seconds())}")
         self.status.set_items(items)
+
+    def on_instrument_registry(self) -> None:
+        """打开「乐器注册表」对话框（菜单 / 工具栏 / Ctrl+Shift+G）。"""
+        dialog = InstrumentRegistryDialog(self, on_changed=self.refresh_instrument_views)
+        self.wait_window(dialog)
+
+    def refresh_instrument_views(self) -> None:
+        """注册表增删改后，立刻刷新属性下拉框、状态栏与卷帘。"""
+        fetch.reload_registry()
+        props = self.dock_manager.panel("properties")
+        if props is not None:
+            from .properties import instrument_items
+
+            props.instrument.set_items(instrument_items())
+            props._refresh_sample_state()
+        self._refresh_status_items()
+        self.roll.schedule_redraw()
+        self.status.set_message("乐器注册表已更新，属性面板的乐器列表已刷新")
 
     # ---------------------------------------------------------------- 工程
     def on_open(self) -> None:

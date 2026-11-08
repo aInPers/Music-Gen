@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from ..core.notes import midi_to_name
+from . import registry as _registry
 
 #: 单个文件每个镜像的下载超时（秒）
 PER_FILE_TIMEOUT = 20.0
@@ -71,147 +72,79 @@ class InstrumentSource:
         return range(self.midi_low, self.midi_high + 1)
 
 
-_FLUID_GH = "gh/gleitz/midi-js-soundfonts@gh-pages/FluidR3_GM/{gm}-mp3/{name}.{ext}"
-_FLUID_RAW = "gleitz/midi-js-soundfonts/gh-pages/FluidR3_GM/{gm}-mp3/{name}.{ext}"
-
-
 def _fluid_mirrors(gm_name: str) -> list[str]:
-    """FluidR3 GM（开源 GM 音源）某件乐器的多镜像下载地址。
+    """兼容旧调用：镜像模板现在由 :mod:`registry` 统一生成。"""
+    return _registry.fluid_mirrors(gm_name)
 
-    按“通常最快”的顺序排列：jsDelivr 主站 → fastly → gcore → GitHub 原始文件。
-    单个文件失败/超时会自动换下一个镜像。
+
+_FLUID_LICENSE = _registry.FLUID_LICENSE
+_FLUID_HOME = _registry.FLUID_HOME
+
+#: 以下四张表由 :func:`reload_registry` 从磁盘注册表**原地填充**。
+#: 其它模块直接引用这些对象，所以注册表变更时必须原地更新（不能整个替换），
+#: 否则已经 import 的模块会一直拿着旧字典。
+SOURCES: dict[str, InstrumentSource] = {}
+BUILTIN: dict[str, str] = {}
+LABELS: dict[str, str] = {}
+ALIASES: dict[str, str] = {}
+GAINS: dict[str, float] = {}
+
+
+def reload_registry(entries: list[dict] | None = None) -> list[dict]:
+    """从注册表 JSON 重建四张表（原地更新，保持对象引用不变）。
+
+    返回本次使用的条目列表，方便调用方显示或校验。文件损坏时
+    ``registry.load()`` 会回退内置默认，界面不至于打不开。
     """
-    gh = _FLUID_GH.format(gm=gm_name, name="{name}", ext="{ext}")
-    raw = _FLUID_RAW.format(gm=gm_name, name="{name}", ext="{ext}")
-    return [
-        f"https://cdn.jsdelivr.net/{gh}",
-        f"https://fastly.jsdelivr.net/{gh}",
-        f"https://gcore.jsdelivr.net/{gh}",
-        f"https://raw.githubusercontent.com/{raw}",
-    ]
+    data = _registry.load() if entries is None else entries
+    sources: dict[str, InstrumentSource] = {}
+    builtins: dict[str, str] = {}
+    labels: dict[str, str] = {}
+    aliases: dict[str, str] = {}
+    gains: dict[str, float] = {}
+    for entry in data:
+        key = entry["key"]
+        labels[key] = entry.get("label") or key
+        aliases[key] = key
+        aliases[labels[key]] = key
+        for alias in entry.get("aliases") or []:
+            aliases[alias] = key
+            aliases[alias.lower()] = key
+        if entry.get("kind") == "builtin":
+            builtins[key] = entry.get("description") or "内置乐器"
+            continue
+        urls = list(entry.get("urls") or _registry.fluid_mirrors(entry.get("gm", "")))
+        sources[key] = InstrumentSource(
+            key=key,
+            title=entry.get("title") or f"自定义音源 — {key}",
+            license=entry.get("license") or _FLUID_LICENSE,
+            homepage=entry.get("homepage") or _FLUID_HOME,
+            extension=entry.get("extension") or "mp3",
+            url_templates=urls,
+            midi_low=int(entry.get("midi_low", 21)),
+            midi_high=int(entry.get("midi_high", 108)),
+            note_range_label=entry.get("range_label") or "",
+        )
+        gains[key] = float(entry.get("gain") or 0) or 10.0
+    SOURCES.clear(), SOURCES.update(sources)
+    BUILTIN.clear(), BUILTIN.update(builtins)
+    LABELS.clear(), LABELS.update(labels)
+    ALIASES.clear(), ALIASES.update(aliases)
+    GAINS.clear(), GAINS.update(gains)
+    return data
 
 
-_FLUID_LICENSE = "FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）"
-_FLUID_HOME = "https://github.com/gleitz/midi-js-soundfonts"
-
-SOURCES: dict[str, InstrumentSource] = {
-    "piano": InstrumentSource(
-        key="piano",
-        title="FluidR3 GM — Acoustic Grand Piano",
-        license=_FLUID_LICENSE,
-        homepage=_FLUID_HOME,
-        extension="mp3",
-        url_templates=_fluid_mirrors("acoustic_grand_piano"),
-        midi_low=21,
-        midi_high=108,
-        note_range_label="A0–C8（88 键全覆盖）",
-    ),
-    "cello": InstrumentSource(
-        key="cello",
-        title="FluidR3 GM — Cello",
-        license=_FLUID_LICENSE,
-        homepage=_FLUID_HOME,
-        extension="mp3",
-        url_templates=_fluid_mirrors("cello"),
-        midi_low=36,
-        midi_high=84,
-        note_range_label="C2–C6（大提琴常用音域）",
-    ),
-    "violin": InstrumentSource(
-        key="violin",
-        title="FluidR3 GM — Violin",
-        license=_FLUID_LICENSE,
-        homepage=_FLUID_HOME,
-        extension="mp3",
-        url_templates=_fluid_mirrors("violin"),
-        midi_low=55,
-        midi_high=96,
-        note_range_label="G3–C7（小提琴常用音域）",
-    ),
-    "trumpet": InstrumentSource(
-        key="trumpet",
-        title="FluidR3 GM — Trumpet",
-        license=_FLUID_LICENSE,
-        homepage=_FLUID_HOME,
-        extension="mp3",
-        url_templates=_fluid_mirrors("trumpet"),
-        midi_low=52,
-        midi_high=84,
-        note_range_label="E3–C6（小号常用音域）",
-    ),
-    "recorder": InstrumentSource(
-        key="recorder",
-        title="FluidR3 GM — Recorder",
-        license=_FLUID_LICENSE,
-        homepage=_FLUID_HOME,
-        extension="mp3",
-        url_templates=_fluid_mirrors("recorder"),
-        midi_low=60,
-        midi_high=96,
-        note_range_label="C4–C7（竖笛常用音域）",
-    ),
-    "guitar": InstrumentSource(
-        key="guitar",
-        title="FluidR3 GM — Acoustic Guitar (steel)",
-        license=_FLUID_LICENSE,
-        homepage=_FLUID_HOME,
-        extension="mp3",
-        url_templates=_fluid_mirrors("acoustic_guitar_steel"),
-        midi_low=40,
-        midi_high=88,
-        note_range_label="E2–E6（民谣吉他常用音域）",
-    ),
-}
-
-#: 内置乐器：不走采样下载，由 core/drums.py 程序化合成
-BUILTIN: dict[str, str] = {
-    "drums": "内置合成鼓组（GM 打击乐映射）",
-}
+def instrument_gain(key: str) -> float | None:
+    """注册表登记的采样电平补偿；没有登记时由 sampler 用内置默认值。"""
+    return GAINS.get(resolve(key))
 
 
 def instrument_keys() -> list[str]:
-    """界面下拉框里的全部乐器（采样乐器在前，内置乐器在后）。"""
-    return list(SOURCES) + list(BUILTIN)
+    """界面下拉框里的全部乐器（按注册表顺序）。"""
+    return list(LABELS)
 
 
-#: 界面显示用的中文名（顺序即下拉框顺序）
-LABELS: dict[str, str] = {
-    "piano": "钢琴",
-    "cello": "大提琴",
-    "violin": "小提琴",
-    "trumpet": "小号",
-    "recorder": "竖笛",
-    "guitar": "吉他",
-    "drums": "架子鼓",
-}
-
-#: 工程文件里可以直接写中文名 / 常见别名
-ALIASES: dict[str, str] = {
-    "钢琴": "piano",
-    "小提琴": "violin",
-    "大提琴": "cello",
-    "小号": "trumpet",
-    "竖笛": "recorder",
-    "牧童笛": "recorder",
-    "木笛": "recorder",
-    "吉他": "guitar",
-    "民谣吉他": "guitar",
-    "木吉他": "guitar",
-    "架子鼓": "drums",
-    "鼓组": "drums",
-    "鼓": "drums",
-    "打击乐": "drums",
-    "grand piano": "piano",
-    "strings": "violin",
-    "violoncello": "cello",
-    "recorder": "recorder",
-    "acoustic": "guitar",
-    "acoustic guitar": "guitar",
-    "drum": "drums",
-    "drumkit": "drums",
-    "kit": "drums",
-    "percussion": "drums",
-}
+reload_registry()
 
 
 def resolve(name: str | None) -> str:

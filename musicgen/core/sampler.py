@@ -113,7 +113,11 @@ class SampleInstrument:
         self.name = name
         self.cache_root = cache_root
         self.sample_rate = sample_rate
-        self.instrument_gain = INSTRUMENT_GAIN.get(name, DEFAULT_INSTRUMENT_GAIN)
+        # 优先用注册表里登记的电平补偿，内置的 INSTRUMENT_GAIN 作为兜底
+        self.instrument_gain = (
+            fetch.instrument_gain(name)
+            or INSTRUMENT_GAIN.get(name, DEFAULT_INSTRUMENT_GAIN)
+        )
         self._warn = warn or (lambda msg: None)
         self._cache: dict[int, _CachedSample | None] = {}
         self._available: list[int] = fetch.available_notes(name, cache_root)

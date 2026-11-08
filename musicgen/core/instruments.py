@@ -28,7 +28,7 @@ class InstrumentRegistry:
 
     @property
     def available(self) -> list[str]:
-        return list(fetch.SOURCES) + list(fetch.BUILTIN)
+        return fetch.instrument_keys()
 
     def synth(self) -> SynthInstrument:
         """兜底合成器（不产生警告），用于采样缺失时顶替。"""

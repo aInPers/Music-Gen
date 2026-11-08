@@ -47,6 +47,8 @@ class ToolBar(tk.Frame):
 
         self.btn_export = self._button(left, "export", "导出 WAV  Ctrl+S", handlers.get("export"))
         self.btn_samples = self._button(left, "download", "下载 / 更新音源", handlers.get("samples"))
+        self.btn_instruments = self._button(left, "gear", "乐器注册表  Ctrl+Shift+G",
+                                            handlers.get("instruments"))
         self.btn_refresh = self._button(left, "refresh", "重新载入工程  F5", handlers.get("refresh"))
 
         self.info = tk.Label(self, text="", bg=T["chrome"], fg=T["text_faint"],
@@ -97,6 +99,7 @@ class ToolBar(tk.Frame):
         self.btn_play.set_enabled(has_result and not busy)
         self.btn_stop.set_enabled(has_result and not busy)
         self.btn_export.set_enabled(has_result and not busy)
+        self.btn_instruments.set_enabled(not busy)
         self._playing = playing
         self.btn_play.set_icon("pause" if playing else "play")
         self.btn_play.set_tooltip("暂停  空格" if playing else "播放  空格")
