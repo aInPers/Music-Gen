@@ -1,130 +1,183 @@
 # MusicGen
 
-用 `*.musicproj`（XML）工程文件渲染出乐器纯音乐 WAV。带命令行与桌面图形界面。
+## 1. 用途
 
-![界面](docs/screenshot.png)
+MusicGen 是一个**用命令行驱动的多轨编曲渲染工具**：把一个 `*.musicproj`（XML）工程和它的每条音轨（`*.track.xml`）编译成乐器纯音乐 WAV。
 
-## 特性
-
-- **工程即 XML**：一个 `*.musicproj` + 每条音轨一个 `*.track.xml`，可读、可手改、好做版本管理
-- **按音轨控制**：乐器、速度（可逐轨覆盖）、音量、声像、混响、是否循环、循环长度/次数、移调
-- **六种真实音色 + 鼓组**：钢琴 / 小提琴 / 大提琴 / 小号 / 竖笛 / 吉他，FluidR3 GM 逐音采样（开源），
-  共 298 个采样；多镜像并发下载、本地缓存、逐件电平校准，缺采样时自动回退内置合成器
-- **架子鼓不用下载**：内置合成鼓组，鼓谱直接写 `pitch="kick,snare"`、`pitch="hihat"`，
-  GM 打击乐 35–82 全映射，力度控制音量与亮度
-- **乐器随手换**：工程里写 `instrument="cello"` 或 `instrument="大提琴"` 都行，界面属性面板有下拉框
-- **渲染质量**：力度→音量+亮度、松键释放、合成 IR 混响、等功率声像、峰值归一化、16/24/32bit 与 32bit float 输出
-- **内置预览**：渲染完直接在应用里播放——播放/暂停、停止、拖动进度定位、音量，卷帘与波形上有播放头
-- **新建工程向导**：名称/位置/速度/采样率/拍号/模板（示例 or 空白），创建即打开
-- **轨道随手加改**：`musicgen track add/edit/remove`、`note add/set/del` 直接改工程且保留 XML 注释；
-  界面用「文件 → 新建轨道…」或 `Ctrl+Shift+T` 建轨，属性面板改参数
-- **乐器注册表可自行增删**：乐器清单存在 `~/.musicgen/instruments.json`，`musicgen instrument add flute --name 长笛 --gm flute` 即可加一件 GM 音色；
-  界面「编辑 → 乐器注册表…」也能添加/删除/恢复默认，改完下拉框立即刷新
-- **单独查看一条音轨**：`Ctrl+Shift+V` 打开独立窗口，表格列出全部音符、点行跳到卷帘；
-  窗口内可单独试听这一轨并导出分轨 WAV；`Ctrl+Shift+I` 让卷帘只画选中轨
-- **逐个音符编辑**：卷帘里点中任意一小段，右下面板直接改起始/时长/音高/力度，还能复制、删除、逐个跳
-- **可滚动的卷帘**：滚轮上下、`Alt+滚轮`左右、`Ctrl+滚轮`横向缩放、`Shift+滚轮`纵向缩放、中键拖动平移，带滚动条
-- **可停靠的工作区**：资源管理器 / 属性 / 音符 / 输出按住标题栏拖到窗口边缘即可停靠到左、右、底部，
-  也能关闭；分栏可拖拽，拖入第二个面板时自动撑大该区，布局自动记忆
-- **两套入口**：`python -m musicgen render` 与桌面界面
-- **Visual Studio 2022 风格界面**：深色工作区、解决方案资源管理器、文档标签页（钢琴卷帘 / 波形 / 工程信息）、
-  属性窗口、音符窗口、输出窗口、蓝色状态栏；界面按面板拆成多个模块，加页面只需新增一个文件
-
-## 快速开始
+- **工程即文本**：一个工程文件 + 每条音轨一个文件，可读、可手改、可进 Git，适合脚本化批量生成。
+- **多轨混音**：每轨独立控制乐器、速度、音量、声像、混响、循环与移调，汇总成一首立体声成品。
+- **两套入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、管乐器）与桌面界面（钢琴卷帘、波形、试听）。
+- **音色开源**：6 件真实采样乐器 + 1 套内置合成鼓组，缺采样时自动回退合成器，离线也能渲染。
 
 ```bat
-py -3 -m pip install -r requirements.txt   # numpy / soundfile / sounddevice
-py -3 -m musicgen samples fetch                     # 下载全部音源（六件乐器，约 8MB）
-py -3 -m musicgen render examples\twinkle\twinkle.musicproj -o twinkle.wav  # 《小星星》完整编曲
-py -3 -m musicgen render examples\band\band.musicproj -o band.wav          # 竖笛 + 吉他 + 鼓
-py -3 -m musicgen render examples\moonlight\moonlight.musicproj -o moonlight.wav  # 贝多芬《月光》1 分钟
-py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
-py -3 -m musicgen render examples\ensemble\ensemble.musicproj -o trio.wav   # 四重奏示例
-py -3 -m musicgen gui examples\demo\demo.musicproj  # 或者双击 MusicGen.bat
+python -m musicgen render examples\twinkle\twinkle.musicproj -o twinkle.wav
 ```
 
-当前机器上默认的 `python` 没有 tkinter，界面请用 `py -3`（3.14）。
+---
 
-## 工程文件示例
+## 2. 使用说明
+
+### 2.1 安装
+
+需要 Python 3.10+，依赖只有三个（`numpy` / `soundfile` / `sounddevice`）：
+
+```bat
+py -3 -m pip install -r requirements.txt
+```
+
+> Windows 上如果默认的 `python` 不带 tkinter，命令行可用 `python`，**界面请用 `py -3`**。
+> 也可以直接用仓库里的 `MusicGen-CLI.bat`（透传参数与退出码）和 `MusicGen.bat`（启动界面）。
+
+### 2.2 首次运行
+
+```bat
+py -3 -m musicgen samples fetch                     :: 下载全部音源（6 件乐器，约 8MB，只需一次）
+py -3 -m musicgen validate examples\demo\demo.musicproj
+py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
+py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
+```
+
+仓库自带 5 个示例工程：
+
+| 示例 | 内容 |
+| --- | --- |
+| `examples/demo` | 8 小节 a 小调钢琴小品（最小可用工程） |
+| `examples/ensemble` | 小提琴 + 大提琴 + 小号 + 钢琴，D 小调 |
+| `examples/twinkle` | 《小星星》完整编曲（四件乐器，42 秒） |
+| `examples/band` | 竖笛 + 吉他 + 架子鼓，8 小节 |
+| `examples/moonlight` | 贝多芬《月光》第一乐章 1 分钟钢琴独奏改编（附编曲脚本） |
+
+### 2.3 命令行
+
+```bat
+:: 渲染：默认 24bit / 44100Hz / 立体声 / 归一化到 −1dBFS
+python -m musicgen render songs\Song\Song.musicproj -o out\song.wav
+python -m musicgen render songs\Song\Song.musicproj -o out\ --bits 16 --no-normalize
+
+:: 校验与概况（不渲染、不联网，可放进 CI）
+python -m musicgen validate songs\Song\Song.musicproj
+python -m musicgen info songs\Song\Song.musicproj
+
+:: 新建工程（demo / empty 模板）
+python -m musicgen init songs\NewSong --bpm 96 --template empty
+
+:: 改轨道：新增 / 编辑 / 删除 / 列出
+python -m musicgen track list songs\Song\Song.musicproj
+python -m musicgen track add songs\Song\Song.musicproj --name Guitar --instrument guitar --gain -4dB
+python -m musicgen track edit songs\Song\Song.musicproj --track 1 --gain -6dB --no-loop
+python -m musicgen track remove songs\Song\Song.musicproj --track 3
+
+:: 改音符：增 / 改 / 删 / 列（--track 支持序号、名称、文件名）
+python -m musicgen note add songs\Song\Song.musicproj --track Guitar --time 2 --dur 1/2 --pitch F#4 --vel 0.5
+python -m musicgen note set songs\Song\Song.musicproj --track Guitar --index 1 --pitch C5
+python -m musicgen note del songs\Song\Song.musicproj --track Guitar --index 2
+
+:: 音源与乐器注册表
+python -m musicgen samples list
+python -m musicgen samples fetch --instrument cello,violin
+python -m musicgen instrument list
+python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96 --gain 8.5
+python -m musicgen instrument remove flute
+python -m musicgen instrument reset
+```
+
+退出码：`0` 成功 · `1` 参数/环境错误 · `2` 工程文件有错 · `3` 渲染失败 · `130` 中断。
+完整参数表、真实输出、报错对照与批量脚本：[docs/CLI文档.md](docs/CLI文档.md)。
+
+### 2.4 工程文件
 
 ```xml
-<!-- demo.musicproj -->
+<!-- demo.musicproj：一个工程 + 每轨一个文件 -->
 <musicproj name="Nocturne in A minor" bpm="84" sampleRate="44100" length="auto">
-  <track file="tracks/chords.track.xml"/>
-  <track file="tracks/ostinato.track.xml" gain="-4dB"/>
+  <track file="tracks/violin.track.xml"/>
+  <track file="tracks/drums.track.xml" gain="-2dB"/>
 </musicproj>
 
-<!-- tracks/violin.track.xml：instrument 可写 violin / cello / trumpet / piano / recorder / guitar / drums，也可写中文名 -->
+<!-- tracks/violin.track.xml：乐器可写键名或中文名 -->
 <track name="Violin" instrument="violin" gain="-3dB" pan="0.22" reverb="0.35">
   <note time="0" dur="1" pitch="A4" vel="0.72"/>
+  <note time="2" dur="2" pitch="C4,E4,G4" vel="0.6"/>   <!-- 逗号即和弦 -->
 </track>
-```
 
-```xml
-<!-- tracks/ostinato.track.xml：4 拍一循环，平铺到整首 -->
-<track name="Ostinato" instrument="piano" loop="true" loopLen="4"
-       gain="-4dB" pan="-0.28" reverb="0.18">
-  <note time="0"   dur="0.46" pitch="A4" vel="0.47"/>
-  <note time="0.5" dur="0.46" pitch="C5" vel="0.42"/>
-  <note time="1"   dur="0.46" pitch="E5" vel="0.42"/>
-</track>
-```
-
-```xml
-<!-- tracks/drums.track.xml：鼓件的名字直接当音高写，不用记 GM 编号 -->
-<track name="Drums" instrument="drums" gain="0dB" reverb="0.12">
+<!-- 鼓件名直接当音高写，不用记 GM 编号 -->
+<track name="Drums" instrument="drums">
   <note time="0" dur="0.25" pitch="kick,hat"/>
   <note time="1" dur="0.25" pitch="snare"/>
-  <note time="1.5" dur="0.25" pitch="openhat"/>
 </track>
 ```
 
-时值统一用「拍」，支持 `1/4` 与 `0.5` 两种写法；`pitch="C4,E4,G4"` 直接写和弦；
-鼓件名 `kick` / `snare` / `hat` / `openhat` / `crash` / `tom1` / `floor` 见[项目文档 §8.4](docs/项目文档.md)。
+时值单位是「拍」，支持 `1/4` 与 `0.5` 两种写法，也支持 `1/3` 三连音；循环轨用 `loop="true" loopLen="4"` 平铺整首。
+完整字段规范见 [项目文档](docs/项目文档.md)。
 
-## 命令
+### 2.5 界面
 
-| 命令 | 作用 |
+`MusicGen.bat` 或 `py -3 -m musicgen gui`。Visual Studio 2022 深色风格，四个工具窗口（资源管理器 / 属性 / 音符 / 输出）按住标题栏可拖到左、右、底部停靠，布局自动记忆。
+
+- 卷帘：`滚轮` 上下 · `Alt+滚轮` 左右 · `Ctrl+滚轮` 缩放 · 中键拖动平移
+- 常用键：`Ctrl+N` 新建工程 · `Ctrl+Shift+T` 新建轨道 · `Ctrl+Shift+Delete` 删除音轨 · `Ctrl+Shift+V` 单独查看音轨 · `Ctrl+Shift+G` 乐器注册表 · `Ctrl+R` 渲染 · `Ctrl+S` 导出
+- 渲染完可直接试听，波形页有播放头；单个音轨可单独试听并导出分轨 WAV
+
+---
+
+## 3. TODOLIST
+
+### 3.1 已支持的乐器
+
+| 键名 | 名称 | 来源 | 音域 | 采样数 |
+| --- | --- | --- | --- | --- |
+| `piano` | 钢琴 | FluidR3 GM | A0–C8 | 88 |
+| `violin` | 小提琴 | FluidR3 GM | G3–C7 | 42 |
+| `cello` | 大提琴 | FluidR3 GM | C2–C6 | 49 |
+| `trumpet` | 小号 | FluidR3 GM | E3–C6 | 33 |
+| `recorder` | 竖笛 | FluidR3 GM | C4–C7 | 37 |
+| `guitar` | 吉他（钢弦） | FluidR3 GM | E2–E6 | 49 |
+| `drums` | 架子鼓 | **内置合成**，无需下载 | GM 打击乐 35–82 | — |
+
+工程里写 `instrument="cello"` 或 `instrument="大提琴"` 都可以；鼓件写 `kick` / `snare` / `hat` / `openhat` / `crash` / `tom1` / `floor` 等，中文（`底鼓`、`军鼓`）也认。
+
+### 3.2 自行添加乐器（已实现）
+
+乐器清单是**可编辑的 JSON 注册表**（默认 `~/.musicgen/instruments.json`，可用 `MUSICGEN_INSTRUMENTS` 覆盖）：
+
+```bat
+python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96 --gain 8.5
+python -m musicgen samples fetch --instrument flute
+```
+
+- `--gm` 给 FluidR3 GM 音色包名，自动生成 4 个下载镜像；也可用 `--url` 指自定义地址
+- 支持别名、音域、采样增益、许可与主页信息
+- 界面「编辑 → 乐器注册表…」（`Ctrl+Shift+G`）可添加、删除、恢复默认，改完下拉框立即刷新
+- 删除条目不会删已下载的采样缓存
+
+### 3.3 待实现
+
+- [ ] **音效叠加 / 效果链**：目前每轨只有一个干湿比固定的混响。计划支持串联效果（EQ、压缩、延迟、失真、chorus）与独立 send 总线，工程里可写 `<effect type="delay" .../>`
+- [ ] **自定义音色**：导入自己的采样（WAV/AIFF），自定义键位映射、循环点、力度分层与包络，而不只是套用 GM 音色
+- [ ] **多力度层采样**：现在力度只影响音量与亮度，真采样应分 soft / medium / hard 多层切换
+- [ ] **延音踏板与连奏**：弦乐揉弦、铜管滑音、钢琴 una corda 踏板
+- [ ] **速度渐变（tempo map）**：目前只有全局 BPM + 逐轨 BPM
+- [ ] **MIDI 导入 / 导出**：把现有工程与 DAW 打通
+- [ ] **批量分轨导出**：一次导出全部音轨的 stems，而不是逐轨点
+- [ ] **更多音色**：长笛、单簧管、弦乐群、电钢琴、贝斯等
+- [ ] **MP3 / FLAC 导出**：需要引入编码器依赖
+
+---
+
+## 4. LICENSES
+
+| 组件 | 许可证 |
 | --- | --- |
-| `render <proj> [-o out.wav]` | 渲染 WAV（`--bits 16/24/32`、`--float32`、`--no-normalize`） |
-| `validate <proj>` | 校验工程，列出全部错误与警告 |
-| `info <proj>` | 工程概要 |
-| `init <目录>` | 生成示例工程 |
-| `track list/add/edit/remove` | 新增 / 编辑 / 删除 / 列出音轨 |
-| `note list/add/set/del` | 增删改查音轨里的音符 |
-| `samples fetch/list` | 下载/查看音源 |
-| `instrument list/add/remove/reset` | 增删查改用户乐器注册表 |
-| `gui [proj]` | 启动界面 |
+| MusicGen 自身代码 | MIT License，见仓库根目录 [LICENSE](LICENSE) |
+| 示例曲目 | 除《小星星》（民谣，公有领域）与贝多芬《月光》（公有领域）外，其余示例为原创 |
+| FluidR3 GM SoundFont（全部采样音色） | MIT / 自由使用，源自 Frank Wen，经 [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) 分发 |
+| numpy | BSD-3-Clause |
+| soundfile（Python 绑定） | BSD-3-Clause；底层 libsndfile 为 LGPL-2.1+ |
+| sounddevice | MIT；底层 PortAudio 为 MIT |
+| Tcl/Tk（界面） | BSD 风格许可 |
 
-完整参数表、真实输出、退出码与报错对照、批量脚本示例：[docs/CLI文档.md](docs/CLI文档.md)。
+每个乐器的采样目录下都会写 `manifest.json`，记录该音源的来源、许可与文件清单：
 
-## 界面
-
-![钢琴卷帘](docs/screenshot.png)
-
-一个主窗口，四个可拖动调整的区域：
-
-- 顶部：菜单栏、命令条（新建工程/新建轨道/打开/应用/渲染/播放/停止/导出/音源/重载，按钮按状态自动置灰）、
-  传输条（播放暂停/停止/进度/音量）
-- 左：解决方案资源管理器（工程 → tracks → 音轨文件，右键静音/独奏）+ 音符面板
-- 中：文档标签页——钢琴卷帘（钢琴键、小节网格、循环标记、双轴滚动与缩放）、波形、工程信息
-- 右：属性（**乐器下拉框** + 采样状态、音量/声像/混响滑杆、循环、静音/独奏，应用后写回音轨 XML）
-- 左下：音符（选中那一段的起始/时长/音高/力度，可复制、删除、跳相邻）
-- 下：输出日志（分级着色），最底是 VS 蓝色状态栏
-
-新建轨道：`Ctrl+Shift+T` 或「文件 → 新建轨道…」，也可以在资源管理器里右键。
-删除轨道：右键或 `Ctrl+Shift+Delete`（确认后只移除工程引用，音轨文件保留）。
-管理乐器：`Ctrl+Shift+G` 打开注册表，添加时填注册键、中文名与 FluidR3 GM 包名即可。
-单独查看：右键 →「单独查看这条音轨…」；表格点行可跳到卷帘，窗口里能单独试听/导出这一轨。
-
-四个工具窗口都能换停靠位置：**按住标题栏拖到窗口左 / 右 / 下边缘**，蓝色高亮区出现后松手即可；
-也可以点标题栏右上角的停靠按钮。窗口大小/停靠/分栏宽度会记在 `~/.musicgen/ui.json`。
-
-卷帘操作：`滚轮` 上下 · `Alt+滚轮` 左右 · `Ctrl+滚轮` 缩放宽度 · `Shift+滚轮` 缩放行高 · 中键拖动平移；
-单击音符选中（白色描边），`Delete` 删除、`Ctrl+D` 复制、`Ctrl+←/→` 切换音符。
-
-## 文档与测试
-
-- 格式规范、渲染管线细节、扩展新乐器的方法：[docs/项目文档.md](docs/项目文档.md)
-- 命令行完整手册（每个参数、退出码、常见报错怎么办）：[docs/CLI文档.md](docs/CLI文档.md)
-- 测试：`py -3 -m unittest discover -s tests -v`
+```bat
+python -m musicgen samples list        :: 查看状态、音域与许可
+type samples_cache\piano\manifest.json
+```
