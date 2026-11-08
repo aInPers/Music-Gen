@@ -6,7 +6,7 @@ MusicGen 是一个**用命令行驱动的多轨编曲渲染工具**：把一个 
 
 - **工程即文本**：一个工程文件 + 每条音轨一个文件，可读、可手改、可进 Git，适合脚本化批量生成。
 - **多轨混音**：每轨独立控制乐器、速度、音量、声像、混响、循环与移调，汇总成一首立体声成品。
-- **两套入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、管乐器）与桌面界面（钢琴卷帘、波形、试听）。
+- **三种入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、管乐器）、桌面界面（钢琴卷帘、波形、试听），以及 **AI Skill**——仓库自带 `Skill/musicgen` 技能包，AI 助手说清需求就能一路做到 WAV，见 [§2.6](#26-ai-skill)。
 - **音色开源**：6 件真实采样乐器 + 1 套内置合成鼓组，缺采样时自动回退合成器，离线也能渲染。
 
 ```bat
@@ -116,6 +116,19 @@ python -m musicgen instrument reset
 - 卷帘：`滚轮` 上下 · `Alt+滚轮` 左右 · `Ctrl+滚轮` 缩放 · 中键拖动平移
 - 常用键：`Ctrl+N` 新建工程 · `Ctrl+Shift+T` 新建轨道 · `Ctrl+Shift+Delete` 删除音轨 · `Ctrl+Shift+V` 单独查看音轨 · `Ctrl+Shift+G` 乐器注册表 · `Ctrl+R` 渲染 · `Ctrl+S` 导出
 - 渲染完可直接试听，波形页有播放头；单个音轨可单独试听并导出分轨 WAV
+
+### 2.6 AI Skill
+
+`Skill/musicgen/` 是给 AI 助手用的技能包：说清情绪、时长、编制，它就按
+「设计单 → 写工程 → `validate` → `render` → 验收」走完整条链路，产出 `output/<曲名>.wav`。
+
+- 入口 `Skill/musicgen/SKILL.md`：五步工作流、命令速查、9 条硬规则（音域、采样长度、循环、`tail` …）
+- 参考 `Skill/musicgen/references/`：`编曲设计.md`（通用编曲：功能层 / 曲式 / 和声 / 配器 / 织体 / 律动，附到 7 件乐器的映射）、`工程格式.md`、`混音与验收.md`
+- 让 WorkBuddy 加载（它只扫描 `.workbuddy/skills/`，用目录联接把技能挂进去，`Skill/` 仍是唯一源）：
+
+```bat
+mklink /J .workbuddy\skills\musicgen Skill\musicgen
+```
 
 ---
 
