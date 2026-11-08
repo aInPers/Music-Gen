@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape
 from pathlib import Path
 from typing import Any, Iterable
@@ -406,6 +406,20 @@ def remove_track(
         except OSError as exc:
             raise TrackEditError(f"音轨引用已移除，但文件删除失败：{exc}") from None
     return track.name, relative, deleted
+
+
+def isolate_project(project: Project, index: int) -> tuple[int, Project]:
+    """构造一个**只含指定音轨**的工程副本，用于分轨试听 / 导出（不写任何文件）。
+
+    ``index`` 是 **0-based**（与 GUI 的 ``selected`` / ``Track`` 下标一致，
+    注意与 ``find_track`` 的 1-based 字符串序号不同）。返回 ``(index, 新工程)``。
+    副本里该轨的 ``mute`` / ``solo`` 会清零，否则渲染器会把它过滤掉；
+    原工程对象与其音轨都不会被修改。
+    """
+    if not 0 <= index < len(project.tracks):
+        raise TrackEditError(f"音轨下标超出范围 0-{len(project.tracks) - 1}：{index}")
+    single = replace(project.tracks[index], mute=False, solo=False)
+    return index, replace(project, tracks=[single], warnings=[])
 
 
 # ---------------------------------------------------------------------------

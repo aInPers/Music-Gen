@@ -132,6 +132,9 @@ def build(root: tk.Misc, app) -> MenuBar:
     edit_menu.add_command(label="下一个音符", accelerator="Ctrl+→",
                           command=lambda: app.on_note_step(1))
     edit_menu.add_separator()
+    edit_menu.add_command(label="删除选中音轨…", accelerator="Ctrl+Shift+Delete",
+                          command=app.on_delete_track)
+    edit_menu.add_separator()
     edit_menu.add_command(label="清空输出", command=app.clear_output)
 
     # 视图：文档页 + 工具窗口（勾选式）+ 布局
@@ -159,6 +162,13 @@ def build(root: tk.Misc, app) -> MenuBar:
         )
     app._view_vars = view_vars
 
+    view_menu.add_separator()
+    view_menu.add_command(label="单独查看这条音轨…", accelerator="Ctrl+Shift+V",
+                          command=app.on_view_track)
+    isolate_var = tk.BooleanVar(value=False)
+    app._isolate_var = isolate_var
+    view_menu.add_checkbutton(label="只看选中音轨", variable=isolate_var,
+                              accelerator="Ctrl+Shift+I", command=app.on_toggle_isolate)
     view_menu.add_separator()
     dock_menu = theme.make_menu(view_menu)
     for key, label in (("explorer", "解决方案资源管理器"), ("properties", "属性"),

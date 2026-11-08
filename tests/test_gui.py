@@ -39,6 +39,17 @@ except Exception as exc:  # noqa: BLE001 - 无 tkinter / 无显示环境
 DEMO_DIR = ROOT / "examples" / "demo"
 
 
+def _menu_index(menu, label: str) -> int:
+    """按文字找菜单项序号（菜单增删项后不必改测试里的硬编码索引）。"""
+    for index in range(menu.index("end") + 1):
+        try:
+            if menu.entrycget(index, "label") == label:
+                return index
+        except Exception:  # noqa: BLE001 - 分隔项没有 label
+            continue
+    raise AssertionError(f"菜单里找不到「{label}」")
+
+
 @unittest.skipUnless(_TK_OK, f"图形环境不可用: {_TK_ERR}")
 class GuiTests(unittest.TestCase):
     @classmethod
@@ -215,8 +226,9 @@ class GuiTests(unittest.TestCase):
     def test_all_toolbar_buttons_wired(self) -> None:
         """命令条不能出现「看着能点、点了没反应」的按钮。"""
         bar = self.app.toolbar
-        names = ("btn_new", "btn_new_track", "btn_open", "btn_apply", "btn_render",
-                 "btn_play", "btn_stop", "btn_export", "btn_samples", "btn_refresh")
+        names = ("btn_new", "btn_new_track", "btn_delete_track", "btn_open", "btn_apply",
+                 "btn_render", "btn_play", "btn_stop", "btn_view_track", "btn_isolate",
+                 "btn_export", "btn_samples", "btn_refresh")
         for name in names:
             with self.subTest(button=name):
                 button = getattr(bar, name)
@@ -245,8 +257,77 @@ class GuiTests(unittest.TestCase):
         self.app.goto_page("roll")
         self.app.menus["view"].invoke(1)      # 波形
         self.assertEqual(self.app.page, "wave")
-        self.app.menus["edit"].invoke(8)      # 清空输出
+        self.app.menus["edit"].invoke(_menu_index(self.app.menus["edit"], "清空输出"))
         self.app.goto_page("roll")
+
+    def test_track_management_menu_entries(self) -> None:
+        self.assertIsNotNone(_menu_index(self.app.menus["edit"], "删除选中音轨…"))
+        self.assertIsNotNone(_menu_index(self.app.menus["view"], "单独查看这条音轨…"))
+        self.assertIsNotNone(_menu_index(self.app.menus["view"], "只看选中音轨"))
+        for key in ("btn_delete_track", "btn_view_track", "btn_isolate"):
+            with self.subTest(button=key):
+                self.assertIsNotNone(getattr(self.app.toolbar, key)._command)
+
+    def test_isolate_mode_syncs_everywhere(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+        try:
+            self.app.set_only_selected(True)
+            self.assertTrue(self.app.only_selected_track)
+            self.assertTrue(self.app.roll.only_selected)
+            self.assertTrue(self.app._isolate_var.get())
+            self.assertEqual(self.app.toolbar.btn_isolate.icon, "focus_on")
+            self.app.on_toggle_isolate()
+            self.assertFalse(self.app.only_selected_track)
+            self.assertFalse(self.app.roll.only_selected)
+            self.assertFalse(self.app._isolate_var.get())
+            self.assertEqual(self.app.toolbar.btn_isolate.icon, "focus")
+        finally:
+            self.app.set_only_selected(False)
+
+    def test_track_window_table_and_jump(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.select_track(0)
+        self.app.update()
+        self.app.on_view_track()
+        for _ in range(5):
+            self.app.update()
+        window = self.app._track_windows.get(0)
+        self.assertIsNotNone(window)
+        try:
+            rows = window.tree.get_children()
+            self.assertEqual(len(rows), len(self.app.project.tracks[0].notes))
+            window.tree.selection_set(rows[2])
+            window._on_row_select()
+            self.app.update()
+            self.assertEqual(self.app.note_sel, (0, 2))
+            self.assertEqual(self.app.roll.selected_note, (0, 2))
+            window._toggle_isolate()
+            self.assertTrue(self.app.only_selected_track)
+            self.assertIn("只看这一轨", window.btn_isolate.cget("text"))
+        finally:
+            window.close()
+            self.app.set_only_selected(False)
+            self.app.update()
+        self.assertNotIn(0, self.app._track_windows)
+
+    def test_delete_track_from_gui(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="musicgen_deltrack_"))
+        try:
+            target = Path(tmp) / "demo"
+            shutil.copytree(DEMO_DIR, target)
+            project_path = target / "demo.musicproj"
+            self.app.open_project(str(project_path))
+            before = len(self.app.project.tracks)
+            self.assertTrue(self.app._delete_track(1))
+            self.assertEqual(len(self.app.project.tracks), before - 1)
+            text = self.app.project.path.read_text(encoding="utf-8")
+            self.assertEqual(text.count("<track "), before - 1)
+            self.assertTrue((target / "tracks" / "ostinato.track.xml").is_file())
+            self.assertEqual(self.app.selected, 1)
+        finally:
+            self.app.open_project(str(self.project_path))
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_new_track_entries_and_dialog(self) -> None:
         self.app.open_project(str(self.project_path))

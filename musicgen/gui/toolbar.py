@@ -24,6 +24,8 @@ class ToolBar(tk.Frame):
         self.btn_new = self._button(left, "new", "新建工程  Ctrl+N", handlers.get("new"))
         self.btn_new_track = self._button(left, "add", "新建轨道  Ctrl+Shift+T",
                                           handlers.get("new_track"))
+        self.btn_delete_track = self._button(left, "trash", "删除选中音轨  Ctrl+Shift+Delete",
+                                             handlers.get("delete_track"))
         self.btn_open = self._button(left, "open", "打开工程  Ctrl+O", handlers.get("open"))
         self._sep(left)
 
@@ -35,6 +37,12 @@ class ToolBar(tk.Frame):
 
         self.btn_play = self._button(left, "play", "播放 / 暂停  空格", handlers.get("play"))
         self.btn_stop = self._button(left, "stop", "停止（回到开头）  Esc", handlers.get("stop"))
+        self._sep(left)
+
+        self.btn_view_track = self._button(left, "eye", "单独查看这条音轨  Ctrl+Shift+V",
+                                           handlers.get("view_track"))
+        self.btn_isolate = self._button(left, "focus", "只看选中音轨  Ctrl+Shift+I",
+                                        handlers.get("isolate"))
         self._sep(left)
 
         self.btn_export = self._button(left, "export", "导出 WAV  Ctrl+S", handlers.get("export"))
@@ -63,6 +71,13 @@ class ToolBar(tk.Frame):
     def playing(self) -> bool:
         return getattr(self, "_playing", False)
 
+    def set_isolate(self, enabled: bool) -> None:
+        """「只看选中轨」切换：换图标与提示，让状态一眼可见。"""
+        self.btn_isolate.set_icon("focus_on" if enabled else "focus")
+        self.btn_isolate.set_tooltip(
+            "恢复显示全部音轨  Ctrl+Shift+I" if enabled else "只看选中音轨  Ctrl+Shift+I"
+        )
+
     def set_project_info(self, text: str) -> None:
         self.info.configure(text=text)
 
@@ -71,6 +86,9 @@ class ToolBar(tk.Frame):
         """按「有没有工程 / 有没有渲染结果 / 是否在忙 / 是否在播」统一刷新按钮。"""
         self.btn_new.set_enabled(not busy)
         self.btn_new_track.set_enabled(has_project and not busy)
+        self.btn_delete_track.set_enabled(has_project and not busy)
+        self.btn_view_track.set_enabled(has_project and not busy)
+        self.btn_isolate.set_enabled(has_project and not busy)
         self.btn_open.set_enabled(not busy)
         self.btn_samples.set_enabled(not busy)
         self.btn_refresh.set_enabled(has_project and not busy)

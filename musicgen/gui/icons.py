@@ -182,6 +182,31 @@ def draw(canvas: tk.Canvas, kind: str, cx: float, cy: float, size: float, color:
         width = max(1, int(2.0 * s))
         canvas.create_line(px(8), py(3.2), px(8), py(12.8), fill=color, width=width)
         canvas.create_line(px(3.2), py(8), px(12.8), py(8), fill=color, width=width)
+    elif kind == "trash":
+        width = max(1, int(1.3 * s))
+        canvas.create_line(px(3.4), py(4), px(12.6), py(4), fill=color, width=width)
+        canvas.create_line(px(6.2), py(4), px(6.2), py(2.6), px(9.8), py(2.6),
+                           px(9.8), py(4), fill=color, width=width)
+        canvas.create_polygon(px(4.6), py(5), px(11.4), py(5), px(10.6), py(13),
+                              px(5.4), py(13), fill="", outline=color, width=width)
+        for value in (6.8, 9.2):
+            canvas.create_line(px(value), py(6.6), px(value), py(11.4),
+                               fill=color, width=max(1, int(1.0 * s)))
+    elif kind == "eye":
+        width = max(1, int(1.3 * s))
+        canvas.create_oval(px(2), py(4.8), px(14), py(11.2), outline=color, width=width)
+        canvas.create_oval(px(6.5), py(6.5), px(9.5), py(9.5), fill=color, outline="")
+    elif kind in ("focus", "focus_on"):
+        width = max(1, int(1.4 * s))
+        for x1, y1, x2, y2 in (
+            (2.6, 2.6, 5.6, 2.6), (2.6, 2.6, 2.6, 5.6),
+            (13.4, 2.6, 10.4, 2.6), (13.4, 2.6, 13.4, 5.6),
+            (2.6, 13.4, 5.6, 13.4), (2.6, 13.4, 2.6, 10.4),
+            (13.4, 13.4, 10.4, 13.4), (13.4, 13.4, 13.4, 10.4),
+        ):
+            canvas.create_line(px(x1), py(y1), px(x2), py(y2), fill=color, width=width)
+        if kind == "focus_on":
+            canvas.create_oval(px(6.4), py(6.4), px(9.6), py(9.6), fill=color, outline="")
     elif kind == "pause":
         for value in (5.6, 9.4):
             canvas.create_rectangle(px(value), py(3.5), px(value + 1.8), py(12.5),

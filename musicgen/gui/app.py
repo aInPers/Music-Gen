@@ -43,6 +43,7 @@ from .properties import PropertiesPanel
 from .statusbar import StatusBar
 from .toolbar import ToolBar
 from .tracklist import SolutionExplorer
+from .trackview import TrackWindow
 from .transport import TransportBar
 from .waveform import WaveformPage
 
@@ -78,6 +79,8 @@ class MusicGenApp(tk.Tk):
         self.result: RenderResult | None = None
         self.output_path: Path | None = None
         self.page = "roll"
+        self.only_selected_track = False       # 钢琴卷帘只看选中轨
+        self._track_windows: dict[int, TrackWindow] = {}
         self._queue: queue.Queue = queue.Queue()
         self._busy = False
         self._log_lines: list[tuple[str, str]] = []
@@ -129,6 +132,9 @@ class MusicGenApp(tk.Tk):
         self.toolbar = ToolBar(self, {
             "new": self.on_new_project,
             "new_track": self.on_new_track,
+            "delete_track": self.on_delete_track,
+            "view_track": self.on_view_track,
+            "isolate": self.on_toggle_isolate,
             "open": self.on_open,
             "apply": self.on_apply,
             "render": self.on_render,
@@ -200,6 +206,8 @@ class MusicGenApp(tk.Tk):
                 "explorer": lambda parent: SolutionExplorer(
                     parent, on_select=self.select_track, on_toggle=self._toggle,
                     on_apply=self.on_apply, on_new_track=self.on_new_track,
+                    on_view_track=self.on_view_track,
+                    on_delete_track=self.on_delete_track,
                 ),
                 "properties": lambda parent: PropertiesPanel(parent, on_apply=self.on_apply),
                 "note": lambda parent: NotePanel(
@@ -246,6 +254,9 @@ class MusicGenApp(tk.Tk):
         self.bind("<Control-o>", lambda _e: self.on_open())
         self.bind("<Control-n>", lambda _e: self.on_new_project())
         self.bind("<Control-Shift-KeyPress-T>", lambda _e: self.on_new_track())
+        self.bind("<Control-Shift-KeyPress-V>", lambda _e: self.on_view_track())
+        self.bind("<Control-Shift-KeyPress-I>", lambda _e: self.on_toggle_isolate())
+        self.bind("<Control-Shift-Delete>", lambda _e: self.on_delete_track())
         self.bind("<Control-r>", lambda _e: self.on_render())
         self.bind("<Control-s>", lambda _e: self.on_export())
         self.bind("<Control-Return>", lambda _e: self.on_apply())
@@ -491,6 +502,104 @@ class MusicGenApp(tk.Tk):
                  f"→ {ref.relative}", "ok")
         return True
 
+    # ---------------------------------------------------------------- 音轨管理
+    def on_delete_track(self) -> None:
+        """删除选中音轨：菜单 / 工具栏 / 右键 / Ctrl+Shift+Delete。"""
+        track = self._current_track()
+        if track is None or self._busy:
+            return
+        if len(self.project.tracks) <= 1:
+            messagebox.showinfo("无法删除", "工程至少要保留一条音轨。")
+            return
+        if not messagebox.askyesno(
+            "删除音轨",
+            f"从工程里移除「{track.name}」？\n\n"
+            "音轨文件会保留（可用 CLI 的 track add --file 加回来），此操作只改工程文件。",
+        ):
+            return
+        self._delete_track(self.selected)
+
+    def _delete_track(self, index: int, delete_file: bool = False) -> bool:
+        """真正执行删除（与确认对话框解耦，便于测试）。"""
+        if self.project is None:
+            return False
+        try:
+            name, relative, deleted = trackedit.remove_track(
+                self.project.path, index + 1, delete_file=delete_file
+            )
+        except trackedit.TrackEditError as exc:
+            messagebox.showerror("删除失败", str(exc))
+            self.log(f"删除音轨失败：{exc}", "error")
+            return False
+        self.open_project(str(self.project.path))
+        self.select_track(max(0, min(index, len(self.project.tracks) - 1)))
+        self.status.set_message(f"已删除音轨 {name}")
+        self.log(f"删除音轨 {name}（{relative}）"
+                 + ("，文件已删除" if deleted else "，文件保留"), "ok")
+        return True
+
+    def on_view_track(self) -> None:
+        """打开（或激活）选中音轨的独立窗口。"""
+        track = self._current_track()
+        if track is None:
+            return
+        index = self.selected
+        window = self._track_windows.get(index)
+        if window is not None:
+            try:
+                if window.winfo_exists():
+                    window.lift()
+                    window.focus_set()
+                    return
+            except tk.TclError:
+                pass
+            self._track_windows.pop(index, None)
+        self._track_windows[index] = TrackWindow(self, self, index)
+        self.log(f"单独查看音轨 {index + 1}. {track.name}", "ok")
+
+    def on_track_window_closed(self, index: int) -> None:
+        self._track_windows.pop(index, None)
+
+    def _close_track_windows(self) -> None:
+        for window in list(self._track_windows.values()):
+            try:
+                window.close()
+            except tk.TclError:
+                pass
+        self._track_windows.clear()
+
+    def set_only_selected(self, enabled: bool) -> None:
+        """钢琴卷帘只看选中轨（False = 恢复显示所有轨，非选中轨变暗）。"""
+        self.only_selected_track = bool(enabled)
+        self.roll.set_only_selected(self.only_selected_track)
+        self._sync_isolate_ui()
+
+    def on_toggle_isolate(self) -> None:
+        if self.project is None:
+            return
+        self.set_only_selected(not self.only_selected_track)
+        self.log("卷帘只看选中音轨" if self.only_selected_track else "卷帘恢复显示全部音轨")
+
+    def _sync_isolate_ui(self) -> None:
+        on = bool(self.only_selected_track)
+        var = getattr(self, "_isolate_var", None)
+        if var is not None:
+            var.set(on)
+        if hasattr(self, "toolbar"):
+            self.toolbar.set_isolate(on)
+        for window in self._track_windows.values():
+            window._sync_isolate_button()
+        if on and self.project is not None and 0 <= self.selected < len(self.project.tracks):
+            self.status.set_message(
+                f"只看：{self.project.tracks[self.selected].name}（Ctrl+Shift+I 恢复）"
+            )
+
+    def focus_track_note(self, track_index: int, note_index: int) -> None:
+        """音轨窗口点表格行：切到卷帘、选中该音符并把视图滚过去。"""
+        self.goto_page("roll")
+        self.select_note(track_index, note_index)
+        self.roll.focus_note(track_index, note_index)
+
     def open_project(self, path: str | None = None) -> None:
         if self._busy:
             return
@@ -511,6 +620,7 @@ class MusicGenApp(tk.Tk):
             return
 
         self._stop_playback(reset=True)
+        self._close_track_windows()
         self.project = project
         self.selected = 0 if project.tracks else -1
         self.note_sel = None
@@ -525,10 +635,12 @@ class MusicGenApp(tk.Tk):
         self._sync_toolbar()
 
         self.roll.set_project(project, self.selected)
+        self.roll.set_only_selected(self.only_selected_track)
         self.info.set_project(project)
         self._refresh_explorer()
         self._select_ui(self.selected)
         self._refresh_status_items()
+        self._sync_isolate_ui()
         self.status.set_message(f"已打开 {project.path.name}")
 
         self.log(f"载入工程 {project.path}", "ok")
@@ -568,6 +680,13 @@ class MusicGenApp(tk.Tk):
         if explorer is not None:
             explorer.select_track(index)
         self._select_ui(index)
+        for window in self._track_windows.values():
+            try:
+                window._sync_isolate_button()
+            except tk.TclError:  # 窗口刚被关闭
+                pass
+        if self.only_selected_track:
+            self._sync_isolate_ui()
 
     def _select_ui(self, index: int) -> None:
         self.roll.set_selected(index)
@@ -1104,6 +1223,7 @@ class MusicGenApp(tk.Tk):
 
     def on_quit(self) -> None:
         self._stop_tick()
+        self._close_track_windows()
         self.player.pause()
         try:
             self.save_layout()

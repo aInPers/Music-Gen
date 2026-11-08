@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 from musicgen import cli  # noqa: E402
 from musicgen.core import trackedit as te  # noqa: E402
 from musicgen.core.project import load_project  # noqa: E402
+from musicgen.core.render import render_project  # noqa: E402
 
 
 class _ProjectCopy(unittest.TestCase):
@@ -166,6 +167,46 @@ class TrackEditTests(_ProjectCopy):
         self.assertEqual(te.parse_pitch_list("kick,snare"), [36, 38])
         with self.assertRaises(te.TrackEditError):
             te.parse_pitch_list("H9")
+
+
+class IsolateTests(_ProjectCopy):
+    """分轨试听 / 导出用的工程副本（不写文件、不改原工程）。"""
+
+    def test_isolate_keeps_only_one_track(self) -> None:
+        project = self.load()
+        index, isolated = te.isolate_project(project, 1)
+        self.assertEqual(index, 1)
+        self.assertEqual(len(isolated.tracks), 1)
+        self.assertEqual(isolated.tracks[0].name, "Ostinato")
+        self.assertEqual(len(isolated.tracks[0].notes), len(project.tracks[1].notes))
+        self.assertEqual(isolated.bpm, project.bpm)
+        self.assertEqual(isolated.length_spec, project.length_spec)
+        self.assertEqual(isolated.sample_rate, project.sample_rate)
+        self.assertEqual(len(project.tracks), 4)  # 原工程没被动过
+
+    def test_isolate_clears_mute_and_solo(self) -> None:
+        project = self.load()
+        project.tracks[2].mute = True
+        project.tracks[2].solo = True
+        _, isolated = te.isolate_project(project, 2)
+        self.assertFalse(isolated.tracks[0].mute)
+        self.assertFalse(isolated.tracks[0].solo)
+        self.assertTrue(project.tracks[2].mute)   # 原对象保持不变
+        self.assertTrue(project.tracks[2].solo)
+
+    def test_isolate_renders_only_that_track(self) -> None:
+        project = self.load()
+        _, isolated = te.isolate_project(project, 0)
+        result = render_project(isolated)
+        self.assertEqual(result.notes_rendered, len(project.tracks[0].notes))
+        self.assertGreater(result.duration, 0)
+        self.assertEqual(result.track_stats[0].name, "Chords")
+
+    def test_isolate_rejects_bad_index(self) -> None:
+        with self.assertRaises(te.TrackEditError):
+            te.isolate_project(self.load(), 99)
+        with self.assertRaises(te.TrackEditError):
+            te.isolate_project(self.load(), -1)
 
 
 class CliTrackTests(_ProjectCopy):

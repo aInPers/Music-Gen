@@ -46,6 +46,7 @@ class PianoRollPage(tk.Frame):
         self.project = None
         self.selected = -1
         self.selected_note: tuple[int, int] | None = None
+        self.only_selected = False     # True = 只画选中轨，其它轨完全隐藏
         self.zoom = 1.0
         self.scroll_beats = 0.0
         self.pitch_span = DEFAULT_SPAN
@@ -91,12 +92,37 @@ class PianoRollPage(tk.Frame):
         self.selected = index
         self.schedule_redraw()
 
+    def set_only_selected(self, enabled: bool) -> None:
+        """只看选中轨：隐藏其它轨的音符与循环条（区别于默认的「变暗」）。"""
+        self.only_selected = bool(enabled)
+        self.schedule_redraw()
+
     def set_selected_note(self, track_index: int, note_index: int) -> None:
         """高亮某个音符（``-1`` 表示取消）。"""
         if track_index < 0 or note_index < 0:
             self.selected_note = None
         else:
             self.selected_note = (track_index, note_index)
+        self.schedule_redraw()
+
+    def focus_note(self, track_index: int, note_index: int) -> None:
+        """把视图滚到某个音符附近并高亮它（供音轨窗口的表格点行跳转）。"""
+        project = self.project
+        if (project is None or not 0 <= track_index < len(project.tracks)):
+            return
+        notes = project.tracks[track_index].notes
+        if not 0 <= note_index < len(notes):
+            return
+        note = notes[note_index]
+        self.selected = track_index
+        self.selected_note = (track_index, note_index)
+        visible = self.visible_beats()
+        self.scroll_beats = max(0.0, note.time - visible * 0.25)
+        if note.pitches:
+            # pitch_top 是视图顶端音高，让音符落在视图中部
+            self.pitch_top = max(0.0, min(127.0,
+                                          float(max(note.pitches)) + self.pitch_span * 0.35))
+        self._update_scrollbars()
         self.schedule_redraw()
 
     def set_playhead(self, seconds: float | None, follow: bool = True) -> None:
@@ -441,6 +467,8 @@ class PianoRollPage(tk.Frame):
 
         # 循环区间底纹
         for index, track in enumerate(project.tracks):
+            if self.only_selected and self.selected >= 0 and index != self.selected:
+                continue
             if not track.loop:
                 continue
             period = track.period_beats(project.beats_per_bar)
@@ -453,6 +481,8 @@ class PianoRollPage(tk.Frame):
         # 音符
         selected = self.selected
         for index, track in enumerate(project.tracks):
+            if self.only_selected and selected >= 0 and index != selected:
+                continue
             base = theme.TRACK_COLORS[index % len(theme.TRACK_COLORS)]
             active = selected < 0 or index == selected
             color = base if selected < 0 or index == selected else theme.mix(base, T["editor"], 0.35)

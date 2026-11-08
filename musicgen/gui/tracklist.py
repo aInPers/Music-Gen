@@ -21,12 +21,16 @@ class SolutionExplorer(tk.Frame):
         on_toggle: Callable[[int, str], None] | None = None,
         on_apply: Callable[[], None] | None = None,
         on_new_track: Callable[[], None] | None = None,
+        on_view_track: Callable[[], None] | None = None,
+        on_delete_track: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(master, bg=T["panel"])
         self.on_select = on_select
         self.on_toggle = on_toggle
         self.on_apply = on_apply
         self.on_new_track = on_new_track
+        self.on_view_track = on_view_track
+        self.on_delete_track = on_delete_track
 
         self.header = widgets.PanelHeader(self, "解决方案资源管理器")
         self.header.pack(fill="x")
@@ -54,6 +58,10 @@ class SolutionExplorer(tk.Frame):
 
         self.menu = theme.make_menu(self)
         self.menu.add_command(label="新建轨道…", command=self._ctx_new_track)
+        self.menu.add_command(label="删除选中音轨…", command=self._ctx_delete_track)
+        self.menu.add_separator()
+        self.menu.add_command(label="单独查看这条音轨…", command=self._ctx_view_track)
+        self.menu.add_command(label="只看选中音轨", command=self._ctx_isolate)
         self.menu.add_separator()
         self.menu.add_command(label="静音选中音轨", command=lambda: self._ctx_toggle("mute"))
         self.menu.add_command(label="独奏选中音轨", command=lambda: self._ctx_toggle("solo"))
@@ -161,3 +169,22 @@ class SolutionExplorer(tk.Frame):
     def _ctx_new_track(self) -> None:
         if self.on_new_track:
             self.on_new_track()
+
+    def _ctx_delete_track(self) -> None:
+        if self.on_delete_track:
+            self.on_delete_track()
+
+    def _ctx_view_track(self) -> None:
+        if self.on_view_track:
+            self.on_view_track()
+
+    def _ctx_isolate(self) -> None:
+        project = getattr(self, "_project", None)
+        if project is None:
+            return
+        index = self._current_track()
+        if index >= 0:
+            self.on_select(index)
+        view = self.winfo_toplevel()
+        if hasattr(view, "on_toggle_isolate"):
+            view.on_toggle_isolate()
