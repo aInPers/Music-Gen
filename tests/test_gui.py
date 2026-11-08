@@ -222,6 +222,32 @@ class GuiTests(unittest.TestCase):
                 button = getattr(bar, name)
                 self.assertIsNotNone(button._command, f"{name} 没有绑定命令")
 
+    def test_menubar_buttons_have_working_dropdowns(self) -> None:
+        """Tk 9 的 tk::MbPost 会拒绝弹出「不是 Menubutton 后代」的菜单。"""
+        bar = self.app.menu_bar
+        self.assertEqual(len(bar.buttons), 5)
+        for button, key in zip(bar.buttons, ("file", "edit", "view", "render", "help")):
+            with self.subTest(menu=key):
+                menu = self.app.menus[key]
+                self.assertIs(bar.menu_of(button), menu)
+                self.assertTrue(
+                    str(menu).startswith(str(button) + "."),
+                    f"{key} 菜单必须以按钮为 master，否则点击静默失效",
+                )
+                self.assertGreater(menu.index("end"), 0)
+                self.assertTrue(button.bind("<ButtonPress-1>"))
+
+    def test_menubar_alt_keys_and_commands(self) -> None:
+        for key in "fevrh":
+            with self.subTest(key=key):
+                self.assertTrue(self.app.bind(f"<Alt-Key-{key}>"),
+                                f"Alt+{key.upper()} 未绑定")
+        self.app.goto_page("roll")
+        self.app.menus["view"].invoke(1)      # 波形
+        self.assertEqual(self.app.page, "wave")
+        self.app.menus["edit"].invoke(8)      # 清空输出
+        self.app.goto_page("roll")
+
     def test_new_track_entries_and_dialog(self) -> None:
         self.app.open_project(str(self.project_path))
         self.app.update()
