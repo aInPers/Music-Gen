@@ -20,11 +20,13 @@ class SolutionExplorer(tk.Frame):
         on_select: Callable[[int], None],
         on_toggle: Callable[[int, str], None] | None = None,
         on_apply: Callable[[], None] | None = None,
+        on_new_track: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(master, bg=T["panel"])
         self.on_select = on_select
         self.on_toggle = on_toggle
         self.on_apply = on_apply
+        self.on_new_track = on_new_track
 
         self.header = widgets.PanelHeader(self, "解决方案资源管理器")
         self.header.pack(fill="x")
@@ -51,6 +53,8 @@ class SolutionExplorer(tk.Frame):
         self.tree.tag_configure("folder", foreground=T["text"])
 
         self.menu = theme.make_menu(self)
+        self.menu.add_command(label="新建轨道…", command=self._ctx_new_track)
+        self.menu.add_separator()
         self.menu.add_command(label="静音选中音轨", command=lambda: self._ctx_toggle("mute"))
         self.menu.add_command(label="独奏选中音轨", command=lambda: self._ctx_toggle("solo"))
         self.menu.add_separator()
@@ -153,3 +157,7 @@ class SolutionExplorer(tk.Frame):
     def _ctx_apply(self) -> None:
         if self.on_apply:
             self.on_apply()
+
+    def _ctx_new_track(self) -> None:
+        if self.on_new_track:
+            self.on_new_track()

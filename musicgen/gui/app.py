@@ -17,6 +17,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+from ..core import trackedit
 from ..core.notes import PitchError, parse_pitches
 from ..core.project import (
     Note,
@@ -33,6 +34,7 @@ from .docking import DockManager
 from .dragdock import AREA_NAMES, DockDrag
 from .info import ProjectInfoPage
 from .newproject import NewProjectDialog
+from .newtrack import NewTrackDialog
 from .notepanel import NotePanel
 from .output import OutputPanel
 from .pianoroll import PianoRollPage
@@ -126,6 +128,7 @@ class MusicGenApp(tk.Tk):
 
         self.toolbar = ToolBar(self, {
             "new": self.on_new_project,
+            "new_track": self.on_new_track,
             "open": self.on_open,
             "apply": self.on_apply,
             "render": self.on_render,
@@ -196,7 +199,7 @@ class MusicGenApp(tk.Tk):
             factories={
                 "explorer": lambda parent: SolutionExplorer(
                     parent, on_select=self.select_track, on_toggle=self._toggle,
-                    on_apply=self.on_apply,
+                    on_apply=self.on_apply, on_new_track=self.on_new_track,
                 ),
                 "properties": lambda parent: PropertiesPanel(parent, on_apply=self.on_apply),
                 "note": lambda parent: NotePanel(
@@ -242,6 +245,7 @@ class MusicGenApp(tk.Tk):
     def _bind_keys(self) -> None:
         self.bind("<Control-o>", lambda _e: self.on_open())
         self.bind("<Control-n>", lambda _e: self.on_new_project())
+        self.bind("<Control-Shift-KeyPress-T>", lambda _e: self.on_new_track())
         self.bind("<Control-r>", lambda _e: self.on_render())
         self.bind("<Control-s>", lambda _e: self.on_export())
         self.bind("<Control-Return>", lambda _e: self.on_apply())
@@ -438,6 +442,54 @@ class MusicGenApp(tk.Tk):
             "ok",
         )
         self.open_project(str(info["path"]))
+
+    def on_new_track(self) -> None:
+        """菜单 / 工具栏 / 资源管理器右键 / Ctrl+Shift+T 的共用入口。"""
+        if self._busy or self.project is None:
+            return
+        dialog = NewTrackDialog(self, len(self.project.tracks))
+        self.wait_window(dialog)
+        if dialog.result:
+            self._create_track(dialog.result)
+
+    def _create_track(self, info: dict) -> bool:
+        """真正写入工程（与对话框解耦，方便自动化测试）。"""
+        if self.project is None:
+            return False
+        template = info.get("template", "blank")
+        notes: list[tuple[float, float, list[int], float]] = []
+        loop = False
+        if template == "note":
+            notes = [(0.0, 1.0, [60], 0.75)]
+        elif template == "loop":
+            loop = True
+            notes = [
+                (0.0, 3.5, [48, 55], 0.45),
+                (0.0, 0.4, [60], 0.35),
+                (1.0, 0.4, [60], 0.30),
+                (2.0, 0.4, [60], 0.32),
+                (3.0, 0.4, [62], 0.28),
+            ]
+        try:
+            ref = trackedit.add_track(
+                self.project.path,
+                name=info["name"],
+                instrument=info.get("instrument") or "piano",
+                notes=notes,
+                loop=loop,
+                loop_len=4.0 if loop else None,
+            )
+        except trackedit.TrackEditError as exc:
+            messagebox.showerror("新建轨道失败", str(exc))
+            self.log(f"新建轨道失败：{exc}", "error")
+            return False
+
+        self.open_project(str(self.project.path))
+        self.select_track(ref.index - 1)
+        self.status.set_message(f"已新增音轨 {ref.index}. {ref.name}")
+        self.log(f"新建轨道 {ref.index}. {ref.name}（{fetch.display(ref.instrument)}）"
+                 f"→ {ref.relative}", "ok")
+        return True
 
     def open_project(self, path: str | None = None) -> None:
         if self._busy:

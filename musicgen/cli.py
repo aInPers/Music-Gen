@@ -13,11 +13,13 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
 from pathlib import Path
 
 from . import __version__
+from .cli_tracks import TrackEditError, register_track_commands
 from .core.project import ProjectError, create_project, describe, load_project
 from .core.render import render_project
 from .core.wavio import write_wav
@@ -36,6 +38,30 @@ def _setup_console() -> None:
 def _fmt_seconds(value: float) -> str:
     minutes, seconds = divmod(max(0.0, value), 60.0)
     return f"{int(minutes)}:{seconds:05.2f}"
+
+
+#: 这些选项允许负值；argparse 会把 ``--gain -4dB`` 误认成新选项
+_NUMERIC_OPTIONS = {
+    "--gain", "--pan", "--reverb", "--bpm", "--transpose", "--loop-len",
+    "--loop-count", "--time", "--dur", "--vel", "--index",
+}
+_NEGATIVE_VALUE = re.compile(r"^[-+]?\d", re.ASCII)
+
+
+def _normalize_argv(argv: list[str]) -> list[str]:
+    """把 ``--gain -4dB`` 改写成 ``--gain=-4dB``，负数参数不用被迫写等号。"""
+    result: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if (token in _NUMERIC_OPTIONS and index + 1 < len(argv)
+                and _NEGATIVE_VALUE.match(argv[index + 1])):
+            result.append(f"{token}={argv[index + 1]}")
+            index += 2
+            continue
+        result.append(token)
+        index += 1
+    return result
 
 
 class _Progress:
@@ -278,6 +304,10 @@ def build_parser() -> argparse.ArgumentParser:
   python -m musicgen render examples/demo/demo.musicproj -o out.wav
   python -m musicgen samples fetch                    # 下载全部乐器音源
   python -m musicgen samples fetch --instrument cello # 只下大提琴
+  python -m musicgen track add demo.musicproj --name Guitar --instrument guitar
+  python -m musicgen note add demo.musicproj --track Guitar --time 0 --dur 1 --pitch C4
+  python -m musicgen track edit demo.musicproj --track 1 --gain -4dB --no-loop
+  python -m musicgen track list demo.musicproj
 """,
     )
     parser.add_argument("-V", "--version", action="version", version=f"MusicGen {__version__}")
@@ -337,19 +367,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_gui = sub.add_parser("gui", help="启动图形界面")
     p_gui.add_argument("project", nargs="?", default=None, help="启动时打开的工程")
     p_gui.set_defaults(func=cmd_gui)
+
+    register_track_commands(sub)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     _setup_console()
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(_normalize_argv(raw))
 
     if args.command == "render" and not args.output:
         args.output = str(Path(args.project).with_suffix(".wav"))
 
     try:
         return int(args.func(args))
+    except TrackEditError as exc:
+        print(f"操作失败：{exc}", file=sys.stderr)
+        return 1
+    except ProjectError as exc:
+        print("工程文件有问题：", file=sys.stderr)
+        for issue in exc.issues[:8]:
+            print(f"  {issue}", file=sys.stderr)
+        return 2
     except KeyboardInterrupt:
         print("\n已取消", file=sys.stderr)
         return 130

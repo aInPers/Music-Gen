@@ -22,6 +22,8 @@ class ToolBar(tk.Frame):
         left.pack(side="left", padx=(8, 0), pady=3)
 
         self.btn_new = self._button(left, "new", "新建工程  Ctrl+N", handlers.get("new"))
+        self.btn_new_track = self._button(left, "add", "新建轨道  Ctrl+Shift+T",
+                                          handlers.get("new_track"))
         self.btn_open = self._button(left, "open", "打开工程  Ctrl+O", handlers.get("open"))
         self._sep(left)
 
@@ -68,6 +70,7 @@ class ToolBar(tk.Frame):
                   playing: bool = False) -> None:
         """按「有没有工程 / 有没有渲染结果 / 是否在忙 / 是否在播」统一刷新按钮。"""
         self.btn_new.set_enabled(not busy)
+        self.btn_new_track.set_enabled(has_project and not busy)
         self.btn_open.set_enabled(not busy)
         self.btn_samples.set_enabled(not busy)
         self.btn_refresh.set_enabled(has_project and not busy)

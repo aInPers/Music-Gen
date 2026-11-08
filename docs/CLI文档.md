@@ -41,6 +41,8 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | [`samples fetch`](#8-samples-fetch--下载音源) | 下载乐器采样（多镜像并发） | 联网 |
 | [`samples list`](#9-samples-list--查看音源状态) | 查看缓存里各乐器齐不齐 | 不需要 |
 | [`gui`](#10-gui--图形界面) | 启动桌面界面 | 打开工程时按需 |
+| [`track`](#11-track--note--轨道与音符编辑) | 新增 / 编辑 / 删除 / 列出音轨 | 不需要 |
+| [`note`](#11-track--note--轨道与音符编辑) | 增删改查音轨里的音符 | 不需要 |
 
 全局选项：
 
@@ -58,8 +60,9 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | 码 | 含义 | 典型场景 |
 | --- | --- | --- |
 | `0` | 成功（`validate` 允许带警告） | — |
-| `1` | 参数或环境问题 | 乐器名不认识、下载失败、`init` 目标已存在、`init` 参数越界、GUI 起不来 |
-| `2` | 工程文件本身有错 | `render` / `validate` / `info` 解析失败 |
+| `1` | 参数或环境问题 | 乐器名不认识、下载失败、`init` 目标已存在/参数越界、
+`track`/`note` 参数错误或找不到轨道、GUI 起不来 |
+| `2` | 工程文件本身有错 | `render` / `validate` / `info` / `track list` / `note list` 解析失败 |
 | `3` | 渲染阶段失败 | 采样文件读不出来等 I/O 问题 |
 | `130` | 被 `Ctrl+C` 中断 | 长渲染中途取消 |
 
@@ -389,7 +392,119 @@ python -m musicgen gui [工程]
 
 ---
 
-## 11. 常见工作流
+## 11. `track` / `note` — 轨道与音符编辑
+
+不用打开界面也能改工程：**新增轨道、改轨道参数、删轨道、增删改音符**。
+所有写操作都**原地修改 XML 并保留注释与排版**（不是重新生成整个文件），
+命令行与界面的「新建轨道」共用同一套 `core/trackedit.py`。
+
+### 11.1 命令一览
+
+| 命令 | 作用 |
+| --- | --- |
+| `track list <proj>` | 列出音轨：序号、名称、乐器、音符数、音量/声像/混响、文件路径 |
+| `track add <proj> --name X` | 新增一条轨道，写 `tracks/*.track.xml` 并往工程里追加 `<track>` 引用 |
+| `track edit <proj> --track SEL ...` | 改名称 / 乐器 / 音量 / 声像 / 混响 / 循环 / 移调 … |
+| `track remove <proj> --track SEL` | 移除工程里的引用（默认**保留**音轨文件） |
+| `note list <proj> --track SEL` | 列出该轨所有音符（1-based 序号） |
+| `note add <proj> --track SEL --time T --dur D --pitch P` | 追加一个音符 |
+| `note set <proj> --track SEL --index N ...` | 改第 N 个音符的起点/时值/音高/力度 |
+| `note del <proj> --track SEL --index N` | 删第 N 个音符 |
+
+### 11.2 用 `--track` 定位音轨
+
+依次尝试：**1-based 序号**（`1`、`2`）→ **名称精确匹配**（`Melody`，忽略大小写）
+→ **文件名**（`bass.track.xml` 或 `bass`）→ **名称/文件名部分匹配**（`stin`）。
+匹配到多条会报错并列出候选，请改用序号或完整名称。找不到时错误里会附上现有音轨清单。
+
+### 11.3 `track add`
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `--name` | **必填** | 音轨名；也决定默认文件名 |
+| `--instrument` | `piano` | 注册键或中文名（含 `drums`）；未注册的名字会警告，渲染时回退合成器 |
+| `--gain` | `0dB` | `-4dB` / `+2` / `0` 都行，负值时见 §11.7 |
+| `--pan` / `--reverb` | `0` / `0.2` | −1…+1 / 0…1 |
+| `--bpm` | 跟随工程 | 逐轨速度覆盖 |
+| `--loop` / `--loop-len` | 关 | 设为循环轨并指定周期（拍） |
+| `--file` | `tracks/<名称>.track.xml` | 指定文件相对路径（必须在工程目录内） |
+| `--force` | 关 | 目标文件已存在时覆盖；不给则自动加 `_2`、`_3` 避让 |
+| `--note SPEC` | 无 | 初始音符，可重复；格式 `"起点 时值 音高 力度"`，和弦写在音高里 |
+
+```bat
+python -m musicgen track add songs\Song\Song.musicproj --name Guitar --instrument 吉他 --gain -4dB
+python -m musicgen track add songs\Song\Song.musicproj --name Drums --instrument drums ^
+  --note "0 1 kick,hat 0.8" --note "1 1 snare 0.75"
+```
+
+新建的空轨道自带一段语法提示注释；乐器是鼓组时音符会写成 `底鼓,闭镲` 而不是 `C2,Gb2`。
+创建完输出新轨道的序号与文件路径，接着 `note add` 或直接编辑 XML 都可以。
+
+### 11.4 `track edit`
+
+只写你给的参数，没给的一律不动。`--loop` / `--mute` / `--solo` 用
+`--loop` 与 `--no-loop` 这一对开关；`--loop-len none` 删除该属性；
+`--transpose 0` / `--loop-count 0` 同样会删掉对应属性（回到默认）。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--name` / `--instrument` / `--bpm` | 改名 / 换乐器 / 逐轨速度 |
+| `--gain` / `--pan` / `--reverb` | 混音参数 |
+| `--loop` / `--no-loop` | 开关循环 |
+| `--loop-len` / `--loop-count` | 循环周期（拍）/ 次数（0 = 无限） |
+| `--mute` / `--no-mute` / `--solo` / `--no-solo` | 静音 / 独奏 |
+| `--transpose` | 整体移调（半音，−48…+48） |
+
+```bat
+python -m musicgen track edit songs\Song\Song.musicproj --track 1 --gain -6dB --no-loop
+python -m musicgen track edit songs\Song\Song.musicproj --track Melody --instrument violin --transpose 12
+```
+
+输出会逐行列出 `字段  旧值 → 新值`。改完会**清掉工程文件里针对这条轨的参数覆盖**
+（`gain`/`pan`/`mute`/`solo`/`loop`/`name`），否则下次载入会被旧的工程层值盖回去。
+不给任何修改参数会报错退出 1。
+
+### 11.5 `track remove`
+
+```bat
+python -m musicgen track remove songs\Song\Song.musicproj --track 3
+python -m musicgen track remove songs\Song\Song.musicproj --track 3 --delete-file
+```
+
+默认只移除工程里的引用、保留轨道文件（安全，可随时加回来）；要连文件一起删加 `--delete-file`。
+工程只剩一条轨道时拒绝删除并退出 1。
+
+### 11.6 `note add` / `set` / `del` / `list`
+
+| 命令 | 主要选项 | 说明 |
+| --- | --- | --- |
+| `note list` | `--track` | 列音符，序号从 1 开始 |
+| `note add` | `--time` `--dur` `--pitch`（必填）、`--vel`（默认 0.8） | 时值支持 `1/3`、`1/4`；`pitch` 逗号分隔即和弦，鼓轨可写 `kick` / `snare` |
+| `note set` | `--index`（必填）+ 要改的字段 | 只改给的字段 |
+| `note del` | `--index`（必填） | 返回被删音符的属性 |
+
+```bat
+python -m musicgen note list songs\Song\Song.musicproj --track Guitar
+python -m musicgen note add songs\Song\Song.musicproj --track Guitar --time 2 --dur 1/2 --pitch F#4 --vel 0.5
+python -m musicgen note set songs\Song\Song.musicproj --track Guitar --index 1 --pitch C5 --vel 0.9
+python -m musicgen note del songs\Song\Song.musicproj --track Guitar --index 2
+```
+
+音符增删改都只动对应的 `<note>` 节点，音轨里的小节注释与排版会原样保留。
+
+### 11.7 注意事项
+
+* **负数值**：`--gain -4dB`、`--pan -0.2`、`--transpose -12` 直接写即可；
+  CLI 会自动把这类参数合并成 `--gain=-4dB`，不必自己加等号。
+* **退出码**：`0` 成功，`1` 参数/定位/写文件错误（错误写到 stderr，前缀「操作失败：」），
+  `2` 工程文件本身有错；`argparse` 缺必填参数是 `2`。
+* 编辑后建议跑一次 `validate` 再 `render`；`track` / `note` 命令本身不联网、不碰音源缓存。
+* 界面里的「新建轨道…」（`Ctrl+Shift+T`）用的是同一个 `add_track()`，
+  两边建出来的工程完全一致；界面里改轨道参数仍走右侧「属性」面板。
+
+---
+
+## 12. 常见工作流
 
 **第一次跑通**
 
@@ -443,9 +558,9 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 12. 提示信息对照表
+## 13. 提示信息对照表
 
-### 12.1 工程解析（退出码 2）
+### 13.1 工程解析（退出码 2）
 
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
@@ -461,7 +576,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `工程里没有任何 <track>` | 一条音轨都没引用 | 加 `<track file="…"/>` |
 | `缺少 file 属性` | `<track>` 没写 `file` | 补上音轨文件路径 |
 
-### 12.2 忽略即警告（退出码 0，但值没生效）
+### 13.2 忽略即警告（退出码 0，但值没生效）
 
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
@@ -473,7 +588,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `非常用采样率 22050，仍会使用` | `sampleRate` 不在推荐表里 | 一般 44100 或 48000 |
 | `N 个音符起点超出循环周期 X 拍，不会被播放` | `loopLen` 比内容短 | 加大 `loopLen` 或把音符挪回周期内 |
 
-### 12.3 渲染警告（stderr，前缀 `!`）
+### 13.3 渲染警告（stderr，前缀 `!`）
 
 | 提示 | 含义 | 处理 |
 | --- | --- | --- |
@@ -485,13 +600,15 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 13. 与 GUI 的能力对照
+## 14. 与 GUI 的能力对照
 
 | 能力 | CLI | GUI |
 | --- | --- | --- |
 | 渲染 WAV | `render` | 「渲染」按钮 / `Ctrl+R` |
 | 试听 | 导出后用播放器打开 | 传输条直接播（`空格`） |
 | 新建工程 | `init` | `Ctrl+N` 向导（含浏览目录） |
+| 新增轨道 | `track add` | 文件 → 新建轨道… / `Ctrl+Shift+T` 对话框 |
+| 编辑轨道 / 音符 | `track edit`、`note add/set/del` | 属性面板 / 音符面板，应用即写回 |
 | 改工程参数 | 编辑 XML | 属性面板 / 音符面板，应用即写回 |
 | 校验 | `validate` | 载入时自动校验，问题进输出窗口 |
 | 下载音源 | `samples fetch` | 「渲染 → 下载音源」按工程用到的乐器批量下 |
@@ -501,7 +618,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 14. 速查卡
+## 15. 速查卡
 
 ```bat
 :: 看版本 / 帮助
@@ -522,6 +639,12 @@ python -m musicgen render songs\Song\Song.musicproj -o out\ --bits 16 --quiet
 :: 音源
 python -m musicgen samples list
 python -m musicgen samples fetch --instrument 小提琴,cello
+
+:: 轨道编辑
+python -m musicgen track list songs\Song\Song.musicproj
+python -m musicgen track add songs\Song\Song.musicproj --name Guitar --instrument guitar
+python -m musicgen note add songs\Song\Song.musicproj --track Guitar --time 0 --dur 1 --pitch C4
+python -m musicgen track edit songs\Song\Song.musicproj --track 1 --gain -6dB
 
 :: 界面
 py -3 -m musicgen gui songs\Song\Song.musicproj

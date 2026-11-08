@@ -480,8 +480,9 @@ def save_track(track: Track, path: Path | None = None) -> Path:
             root,
             "note",
             {
-                "time": f"{note.time:g}",
-                "dur": f"{note.dur:g}",
+                # 12 位有效数字：1/3 拍的三连音不能被 %g 截成 0.333333
+                "time": f"{note.time:.12g}",
+                "dur": f"{note.dur:.12g}",
                 "pitch": pitches,
                 "vel": f"{note.velocity:g}",
             },
@@ -526,11 +527,13 @@ def describe(project: Project) -> str:
     return "\n".join(lines)
 
 
-def clear_track_overrides(project_path: Path, track_path: Path | None) -> bool:
+def clear_track_overrides(project_path: Path, track_path: Path | None,
+                          *, include_name: bool = False) -> bool:
     """删除工程文件里针对某条音轨的参数覆盖，返回是否有改动。
 
     GUI 保存音轨后调用：否则下次载入会被工程层的旧 gain/pan 覆盖回去。
     用保留注释的解析器读写，避免破坏工程的注释。
+    ``include_name=True`` 时连工程层的 ``name`` 覆盖一起清掉（CLI 改音轨名时用）。
     """
     if track_path is None or not Path(project_path).is_file():
         return False
@@ -555,7 +558,10 @@ def clear_track_overrides(project_path: Path, track_path: Path | None) -> bool:
             continue
         file_attr = (element.get("file") or "").replace("\\", "/")
         if file_attr == relative:
-            for attr in ("gain", "pan", "mute", "solo", "loop"):
+            attrs = ["gain", "pan", "mute", "solo", "loop"]
+            if include_name:
+                attrs.append("name")
+            for attr in attrs:
                 if element.get(attr) is not None:
                     del element.attrib[attr]
                     changed = True

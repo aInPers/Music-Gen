@@ -178,6 +178,21 @@ class ProjectTests(unittest.TestCase):
             loaded = P.load_project(proj)
             self.assertTrue(any("循环周期" in str(w) for w in loaded.warnings))
 
+    def test_save_track_keeps_triplet_precision(self) -> None:
+        """三连音 1/3 拍回写后不能被截成 0.333333（会累积节拍漂移）。"""
+        import xml.etree.ElementTree as ET
+
+        track = P.Track(name="triplet", instrument="piano")
+        track.notes.append(P.Note(1 / 3, 1 / 3, [60], 0.7))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.track.xml"
+            P.save_track(track, path)
+            note = ET.fromstring(path.read_text(encoding="utf-8")).find("note")
+            self.assertIsNotNone(note)
+            self.assertAlmostEqual(float(note.get("time")), 1 / 3, places=10)
+            self.assertAlmostEqual(float(note.get("dur")), 1 / 3, places=10)
+            self.assertNotEqual(note.get("time"), "0.333333")
+
     def test_save_track_roundtrip(self) -> None:
         track = P.Track(name="往返", instrument="piano", gain_db=-2.5, pan=0.25,
                         reverb=0.3, loop=True, loop_len=4.0)

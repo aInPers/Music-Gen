@@ -25,8 +25,10 @@ try:
     import tkinter  # noqa: F401
 
     from musicgen.core.notes import midi_to_name
+    from musicgen.core.project import load_project
     from musicgen.gui.app import MusicGenApp
     from musicgen.gui.newproject import NewProjectDialog
+    from musicgen.gui.newtrack import NewTrackDialog
 
     _TK_OK = True
     _TK_ERR = ""
@@ -213,12 +215,64 @@ class GuiTests(unittest.TestCase):
     def test_all_toolbar_buttons_wired(self) -> None:
         """命令条不能出现「看着能点、点了没反应」的按钮。"""
         bar = self.app.toolbar
-        names = ("btn_new", "btn_open", "btn_apply", "btn_render", "btn_play",
-                 "btn_stop", "btn_export", "btn_samples", "btn_refresh")
+        names = ("btn_new", "btn_new_track", "btn_open", "btn_apply", "btn_render",
+                 "btn_play", "btn_stop", "btn_export", "btn_samples", "btn_refresh")
         for name in names:
             with self.subTest(button=name):
                 button = getattr(bar, name)
                 self.assertIsNotNone(button._command, f"{name} 没有绑定命令")
+
+    def test_new_track_entries_and_dialog(self) -> None:
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+        self.assertTrue(self.app.toolbar.btn_new_track.enabled)
+
+        labels = []
+        menu = self.app.menus["file"]
+        for index in range(menu.index("end") + 1):
+            try:
+                labels.append(menu.entrycget(index, "label"))
+            except Exception:  # noqa: BLE001 - 分隔项没有 label
+                pass
+        self.assertIn("新建轨道…", labels)
+        explorer = self.app.dock_manager.panel("explorer")
+        self.assertIsNotNone(explorer.on_new_track)
+
+        dialog = NewTrackDialog(self.app, len(self.app.project.tracks))
+        for _ in range(6):
+            dialog.update()
+        self.assertEqual(dialog.name_var.get(), "Track 5")
+        self.assertEqual(dialog.instrument.get(), "piano")
+        self.assertEqual(dialog.template_var.get(), "blank")
+        self.assertGreater(dialog.winfo_width(), 200)
+        self.assertGreater(dialog.instrument.winfo_width(), 100)
+        dialog.grab_release()
+        dialog.destroy()
+
+    def test_create_track_writes_project_and_refreshes(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="musicgen_newtrack_"))
+        try:
+            target = Path(tmp) / "demo"
+            shutil.copytree(DEMO_DIR, target)
+            project_path = target / "demo.musicproj"
+            self.app.open_project(str(project_path))
+            before = len(load_project(project_path).tracks)
+
+            ok = self.app._create_track(
+                {"name": "Guitar", "instrument": "guitar", "template": "note"}
+            )
+            self.assertTrue(ok)
+            project = load_project(project_path)
+            self.assertEqual(len(project.tracks), before + 1)
+            self.assertEqual(project.tracks[-1].name, "Guitar")
+            self.assertEqual(project.tracks[-1].instrument, "guitar")
+            self.assertEqual(len(project.tracks[-1].notes), 1)
+            self.assertEqual(self.app.selected, before)
+            self.assertEqual(self.app._current_track().name, "Guitar")
+            self.assertIn("5 音轨", self.app.toolbar.info.cget("text"))
+        finally:
+            self.app.open_project(str(self.project_path))
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_drag_docking(self) -> None:
         self.app.open_project(str(self.project_path))

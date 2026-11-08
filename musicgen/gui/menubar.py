@@ -50,6 +50,7 @@ def build(root: tk.Misc, app) -> MenuBar:
 
     file_menu = theme.make_menu(bar)
     file_menu.add_command(label="新建工程…", accelerator="Ctrl+N", command=app.on_new_project)
+    file_menu.add_command(label="新建轨道…", accelerator="Ctrl+Shift+T", command=app.on_new_track)
     file_menu.add_command(label="打开工程…", accelerator="Ctrl+O", command=app.on_open)
     file_menu.add_separator()
     file_menu.add_command(label="应用音轨参数", accelerator="Ctrl+Enter", command=app.on_apply)

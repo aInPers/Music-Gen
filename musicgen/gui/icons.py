@@ -177,6 +177,11 @@ def draw(canvas: tk.Canvas, kind: str, cx: float, cy: float, size: float, color:
             px(6.8), py(13.4), px(11.6), py(6.8), px(8.4), py(6.8),
             fill=color, outline="",
         )
+    elif kind == "add":
+        # 粗加号：和「新建工程」（文件+加号）区分开
+        width = max(1, int(2.0 * s))
+        canvas.create_line(px(8), py(3.2), px(8), py(12.8), fill=color, width=width)
+        canvas.create_line(px(3.2), py(8), px(12.8), py(8), fill=color, width=width)
     elif kind == "pause":
         for value in (5.6, 9.4):
             canvas.create_rectangle(px(value), py(3.5), px(value + 1.8), py(12.5),
