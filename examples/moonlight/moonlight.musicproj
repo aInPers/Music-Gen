@@ -1,8 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- 贝多芬《月光奏鸣曲》Op.27 No.2 第一乐章 · 1 分钟改编
-     60BPM × 4/4 × 15 小节 = 60 秒；内容在 58.7 秒收束，固定 length 让母带末尾淡出收尾。
-     这是钢琴独奏编制，改编自呈示部开头，不是完整乐章（原曲约 6 分钟）。 -->
-<musicproj name="月光 · Moonlight" bpm="60" sampleRate="44100" beatsPerBar="4"
-           length="60s" tail="2s" masterGain="-1dB" normalize="true">
-  <track file="tracks/piano.track.xml"/>
+<?xml version='1.0' encoding='utf-8'?>
+<musicproj name="月光 · Moonlight" bpm="60" sampleRate="44100" beatsPerBar="4" length="60s" tail="2s" masterGain="-1dB" normalize="true">
+  <track file="tracks/piano.track.xml" />
 </musicproj>

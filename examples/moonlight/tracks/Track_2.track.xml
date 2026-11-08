@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Track 2" instrument="cello" gain="+0dB" pan="0" reverb="0.2">
+  <!-- 音符：time 起点、dur 时值（单位都是「拍」，支持 1/3 这类分数），pitch 用音名，多个音名用逗号分隔就是和弦，vel 是 0-1 的力度。
+   例如 <note time="0" dur="1" pitch="C4,E4,G4" vel="0.7"/>。
+   也可以用 musicgen 的 note add 命令添加音符，用法见 docs/CLI文档.md -->
+  <note time="0" dur="1" pitch="C4" vel="0.75"/>
+</track>
