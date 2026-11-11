@@ -928,7 +928,9 @@ class MusicGenApp(tk.Tk):
             f"保存音轨 {name}（{fetch.display(track.instrument)}"
             + (" · 乐器已更换" if instrument_changed else "")
             + f" / 音量 {track.gain_db:+.1f}dB / 声像 {track.pan:+.2f} / "
-            f"混响 {track.reverb:.2f}{' / 循环' if track.loop else ''}）",
+            f"混响 {track.reverb:.2f}"
+            + (f" / 音效 {len(track.effects)} 个" if track.effects else "")
+            + (' / 循环' if track.loop else '') + "）",
         )
         if instrument_changed:
             have, want = fetch.instrument_status(new_instrument)
@@ -1226,8 +1228,10 @@ class MusicGenApp(tk.Tk):
             'musicproj：<musicproj bpm= sampleRate= length= masterGain=>\n'
             '  <track file="tracks/xx.track.xml"/>\n\n'
             "track：<track name= instrument= gain= pan= reverb= loop= loopLen=>\n"
+            '  <effect type="echo" time="320" mix="0.3"/>\n'
             '  <note time= dur= pitch="C4,E4" vel=/>\n\n'
-            "时值单位为「拍」，支持 1/4 与 0.5 两种写法。",
+            "时值单位为「拍」，支持 1/4 与 0.5 两种写法；\n"
+            "音效类型与参数用 `musicgen effect types` 查看。",
         )
 
     def on_about(self) -> None:

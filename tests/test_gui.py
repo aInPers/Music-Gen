@@ -143,6 +143,43 @@ class GuiTests(unittest.TestCase):
         self.app.update()
         self.assertAlmostEqual(self.app.project.tracks[1].gain_db, -7.5)
 
+    def test_effect_chain_add_and_save(self) -> None:
+        from musicgen.core.effects import EffectSpec
+        from musicgen.gui.effectdialog import EffectDialog
+
+        self.app.open_project(str(self.project_path))
+        self.app.select_track(1)
+        self.app.update()
+        props = self.app.dock_manager.panel("properties")
+        track = self.app.project.tracks[1]
+        track.effects.append(EffectSpec("echo", {"time": 350, "mix": 0.4}))
+        track.effects.append(EffectSpec("立体", {"width": 1.8}))
+        props.set_track(track)
+        self.app.update()
+        self.assertEqual(len(props.effect_list.winfo_children()), 2)
+        self.assertEqual([s.type for s in track.effects], ["echo", "stereo"])
+
+        props._select_effect(1)
+        self.assertEqual(props.btn_effect_edit.cget("state"), "normal")
+        props._remove_effect()
+        self.assertEqual(len(track.effects), 1)
+
+        self.app.on_apply()
+        self.app.update()
+        text = (self.project_path.parent / "tracks" / "ostinato.track.xml").read_text(
+            encoding="utf-8")
+        self.assertIn('<effect type="echo"', text)
+
+        # 对话框控件由注册表参数表生成，只回写与默认值不同的参数
+        dialog = EffectDialog(self.app, effect_type="echo", params={"time": 450}, mode="edit")
+        self.app.update()
+        self.assertEqual(dialog.values(), ("echo", {"time": 450}))
+        dialog._cancel()
+
+        self.app.open_project(str(self.project_path))
+        self.app.update()
+        self.assertEqual([s.type for s in self.app.project.tracks[1].effects], ["echo"])
+
     # ---- 新建工程 -----------------------------------------------------
     def test_new_project_dialog(self) -> None:
         target = Path(tempfile.mkdtemp(prefix="mp_new_"))
