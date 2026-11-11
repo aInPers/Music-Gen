@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MusicGen 示例工程：Daybreak 晨光（C 大调 / 100 BPM / 16 小节） -->
+<musicproj name="Daybreak" bpm="100" sampleRate="44100" beatsPerBar="4"
+           length="auto" tail="0" masterGain="-1dB" normalize="true">
+
+  <!-- 每条音轨一个文件；工程层可覆盖 gain / pan / mute / solo / loop -->
+  <track file="tracks/chords.track.xml"/>
+  <track file="tracks/guitar.track.xml"/>
+  <track file="tracks/violin.track.xml"/>
+  <track file="tracks/bass.track.xml"/>
+  <track file="tracks/drums.track.xml"/>
+</musicproj>

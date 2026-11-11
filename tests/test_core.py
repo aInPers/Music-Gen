@@ -42,6 +42,7 @@ from musicgen.core.wavio import write_wav  # noqa: E402
 DEMO = ROOT / "examples" / "demo" / "demo.musicproj"
 ENSEMBLE = ROOT / "examples" / "ensemble" / "ensemble.musicproj"
 BAND = ROOT / "examples" / "band" / "band.musicproj"
+DAYBREAK = ROOT / "examples" / "daybreak" / "daybreak.musicproj"
 MOONLIGHT = ROOT / "examples" / "moonlight" / "moonlight.musicproj"
 
 
@@ -439,6 +440,22 @@ class DrumTests(unittest.TestCase):
         self.assertEqual(len(drums), 1)
         self.assertGreater(drums[0].notes, 50)
         self.assertGreater(drums[0].peak, 0.05)
+
+    def test_daybreak_example_renders_with_effects(self) -> None:
+        """《晨光》：5 轨 16 小节，三条音轨带效果链（淡入淡出 / 立体 / 回声）。"""
+        if not DAYBREAK.exists():
+            self.skipTest("示例工程不存在")
+        project = P.load_project(DAYBREAK)
+        self.assertEqual(len(project.tracks), 5)
+        self.assertEqual(
+            {(t.name, e.type) for t in project.tracks for e in t.effects},
+            {("Piano", "fade"), ("Guitar", "stereo"), ("Violin", "echo")},
+        )
+        result = render_project(project, normalize=False)
+        self.assertAlmostEqual(result.duration, 40.8, places=2)
+        for stat in result.track_stats:
+            self.assertGreater(stat.peak, 0.05, f"{stat.name} 几乎没出声")
+        self.assertGreaterEqual(result.audio.shape[1], int(40.8 * project.sample_rate))
 
     def test_moonlight_example_is_exactly_one_minute(self) -> None:
         """《月光》：60BPM × 15 小节 = 60.00s，三连音用 1/3 拍精确分数。"""

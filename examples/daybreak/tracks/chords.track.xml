@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Piano" instrument="piano" gain="-10dB" pan="-0.12" reverb="0.30">
+  <!-- 前两小节淡入，结尾轻微收起 -->
+  <effect type="fade" in="1.2" curve="expo" />
+  <note time="0" dur="3.7" pitch="C3,G3,E4" vel="0.46" />
+  <note time="2" dur="1.7" pitch="C3,G3,E4" vel="0.304" />
+  <note time="4" dur="3.7" pitch="G2,D3,B3" vel="0.46" />
+  <note time="6" dur="1.7" pitch="G2,D3,B3" vel="0.304" />
+  <note time="8" dur="3.7" pitch="A2,E3,C4" vel="0.46" />
+  <note time="10" dur="1.7" pitch="A2,E3,C4" vel="0.304" />
+  <note time="12" dur="3.7" pitch="F2,C3,A3" vel="0.46" />
+  <note time="14" dur="1.7" pitch="F2,C3,A3" vel="0.304" />
+  <note time="16" dur="3.7" pitch="C3,G3,E4" vel="0.46" />
+  <note time="18" dur="1.7" pitch="C3,G3,E4" vel="0.304" />
+  <note time="20" dur="3.7" pitch="G2,D3,B3" vel="0.46" />
+  <note time="22" dur="1.7" pitch="G2,D3,B3" vel="0.304" />
+  <note time="24" dur="3.7" pitch="F2,C3,A3" vel="0.46" />
+  <note time="26" dur="1.7" pitch="F2,C3,A3" vel="0.304" />
+  <note time="28" dur="3.7" pitch="C3,G3,E4" vel="0.46" />
+  <note time="30" dur="1.7" pitch="C3,G3,E4" vel="0.304" />
+  <note time="32" dur="3.7" pitch="A2,E3,C4" vel="0.46" />
+  <note time="34" dur="1.7" pitch="A2,E3,C4" vel="0.304" />
+  <note time="36" dur="3.7" pitch="F2,C3,A3" vel="0.46" />
+  <note time="38" dur="1.7" pitch="F2,C3,A3" vel="0.304" />
+  <note time="40" dur="3.7" pitch="C3,G3,E4" vel="0.46" />
+  <note time="42" dur="1.7" pitch="C3,G3,E4" vel="0.304" />
+  <note time="44" dur="3.7" pitch="G2,D3,B3" vel="0.46" />
+  <note time="46" dur="1.7" pitch="G2,D3,B3" vel="0.304" />
+  <note time="48" dur="3.7" pitch="F2,C3,A3" vel="0.46" />
+  <note time="50" dur="1.7" pitch="F2,C3,A3" vel="0.304" />
+  <note time="52" dur="3.7" pitch="G2,D3,B3" vel="0.46" />
+  <note time="54" dur="1.7" pitch="G2,D3,B3" vel="0.304" />
+  <note time="56" dur="3.7" pitch="C3,G3,E4" vel="0.46" />
+  <note time="58" dur="1.7" pitch="C3,G3,E4" vel="0.304" />
+  <note time="60" dur="8" pitch="C3,G3,E4" vel="0.46" />
+</track>

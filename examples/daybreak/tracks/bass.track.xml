@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Bass" instrument="piano" gain="-3.5dB" pan="0" reverb="0.08">
+  <note time="16" dur="1.7" pitch="C2" vel="0.624" />
+  <note time="18" dur="1.7" pitch="C2" vel="0.456" />
+  <note time="20" dur="1.7" pitch="G2" vel="0.624" />
+  <note time="22" dur="1.7" pitch="G2" vel="0.456" />
+  <note time="24" dur="1.7" pitch="F2" vel="0.624" />
+  <note time="26" dur="1.7" pitch="F2" vel="0.456" />
+  <note time="28" dur="1.7" pitch="C2" vel="0.624" />
+  <note time="30" dur="1.7" pitch="C2" vel="0.456" />
+  <note time="32" dur="1.7" pitch="A2" vel="0.624" />
+  <note time="34" dur="1.7" pitch="A2" vel="0.456" />
+  <note time="36" dur="1.7" pitch="F2" vel="0.624" />
+  <note time="38" dur="1.7" pitch="F2" vel="0.456" />
+  <note time="40" dur="1.7" pitch="C2" vel="0.624" />
+  <note time="42" dur="1.7" pitch="C2" vel="0.456" />
+  <note time="44" dur="1.7" pitch="G2" vel="0.624" />
+  <note time="46" dur="1.7" pitch="G2" vel="0.456" />
+  <note time="48" dur="1.7" pitch="F2" vel="0.624" />
+  <note time="50" dur="1.7" pitch="F2" vel="0.456" />
+  <note time="52" dur="1.7" pitch="G2" vel="0.624" />
+  <note time="54" dur="1.7" pitch="G2" vel="0.456" />
+  <note time="56" dur="1.7" pitch="C2" vel="0.624" />
+  <note time="58" dur="1.7" pitch="C2" vel="0.456" />
+  <note time="60" dur="1.7" pitch="C2" vel="0.624" />
+  <note time="62" dur="1.7" pitch="C2" vel="0.456" />
+</track>
