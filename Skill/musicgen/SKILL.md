@@ -114,7 +114,19 @@ python -m musicgen track add  songs/MySong/MySong.musicproj --name Guitar --inst
 python -m musicgen note add songs/MySong/MySong.musicproj --track 1 --time 8 --dur 1/2 --pitch E5 --vel 0.7
 python -m musicgen note set songs/MySong/MySong.musicproj --track 1 --index 3 --pitch G5
 python -m musicgen note del songs/MySong/MySong.musicproj --track 1 --index 5
+
+# 效果链（可选；顺序即信号流，每轨 2–3 个足够）
+python -m musicgen effect types
+python -m musicgen effect add songs/MySong/MySong.musicproj --track 1 --type echo -p time=375 -p mix=0.22
+python -m musicgen effect add songs/MySong/MySong.musicproj --track 1 --type 立体 -p width=1.7
+python -m musicgen effect set songs/MySong/MySong.musicproj --track 1 --index 1 -p feedback=0.45
+python -m musicgen effect list songs/MySong/MySong.musicproj --track 1
+python -m musicgen effect remove songs/MySong/MySong.musicproj --track 1 --index 2
 ```
+
+效果链：`stereo` 立体 / `echo` 回声 / `fade` 淡入淡出 / `electro` 电音 / `8bit` `4bit` `2bit` 位深压缩，参数只写要改的。
+`fade` 放在链尾；回声尾巴受 `length` 限制，需要余韵就加 `tail`；`electro` 只给 1–2 条轨，别全铺。
+`8bit` / `4bit` / `2bit` 位深固定，调 `rate`（越低越破）与 `mix`（留一点干声更耐听），插入后响度不变。
 
 退出码：`0` 成功 · `1` 参数/环境错误 · `2` 工程文件有错 · `3` 渲染失败 · `130` 中断。
 完整参数与错误对照见仓库 `docs/CLI文档.md`。

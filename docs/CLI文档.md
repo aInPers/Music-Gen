@@ -6,7 +6,9 @@
 **目录**：[调用方式](#1-三种调用方式) · [命令总览](#2-命令总览) · [退出码与环境变量](#3-退出码与环境变量) ·
 [render](#4-render--渲染成-wav) · [validate](#5-validate--只校验) · [info](#6-info--工程概要) ·
 [init](#7-init--生成新工程) · [samples fetch](#8-samples-fetch--下载音源) · [samples list](#9-samples-list--查看音源状态) ·
-[gui](#10-gui--图形界面) · [工作流](#11-常见工作流) · [报错对照](#12-提示信息对照表) · [CLI 与 GUI](#13-与-gui-的能力对照) · [速查卡](#14-速查卡)
+[gui](#10-gui--图形界面) · [track / note](#11-track--note--轨道与音符编辑) · [instrument](#12-instrument--乐器注册表) ·
+[effect](#13-effect--音轨效果链) · [工作流](#14-常见工作流) · [报错对照](#15-提示信息对照表) ·
+[CLI 与 GUI](#16-与-gui-的能力对照) · [速查卡](#17-速查卡)
 
 ---
 
@@ -44,6 +46,7 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | [`track`](#11-track--note--轨道与音符编辑) | 新增 / 编辑 / 删除 / 列出音轨 | 不需要 |
 | [`note`](#11-track--note--轨道与音符编辑) | 增删改查音轨里的音符 | 不需要 |
 | [`instrument`](#12-instrument--乐器注册表) | 增删查改用户乐器注册表 | 不需要 |
+| [`effect`](#13-effect--音轨效果链) | 查看音效类型、增删改音轨效果链 | 不需要 |
 
 全局选项：
 
@@ -568,7 +571,75 @@ python -m musicgen instrument reset
 
 ---
 
-## 13. 常见工作流
+## 13. `effect` — 音轨效果链
+
+效果写在音轨文件的 `<effect>` 里，按出现顺序串联，处理位置在**声像之后、汇入总线之前**。
+DSP 细节与工程格式见[项目文档 §6.4](项目文档.md#64-效果链-effect)。
+
+### 13.1 命令一览
+
+| 命令 | 作用 |
+| --- | --- |
+| `effect types` | 列出已注册的 4 个音效，以及每个参数的范围与默认值 |
+| `effect list <proj> [--track X]` | 查看效果链；不给 `--track` 就列出全部音轨 |
+| `effect add <proj> --track X --type T [-p 键=值 …]` | 给音轨追加一个音效 |
+| `effect set <proj> --track X --index N -p 键=值 …` | 改第 N 个音效（1-based）；值写 `none` 表示删掉该参数 |
+| `effect remove <proj> --track X --index N` | 删除第 N 个音效 |
+
+`--track` 与 `track` / `note` 命令一致：1-based 序号、名称、文件名都能定位，支持部分匹配。
+
+### 13.2 七个预设效果
+
+| 类型 | 中文 | 参数（括号里是默认值） |
+| --- | --- | --- |
+| `stereo` | 立体 | `width` 0–2（1.6，M/S 加宽）· `haas` 0–30ms（0，右耳微延迟）· `mix` 0–1（1） |
+| `echo` | 回声 | `time` 20–2000ms（320）· `feedback` 0–0.9（0.36）· `tone` 0–1（0.5）· `pingpong` 开/关（开）· `mix` 0–1（0.3） |
+| `fade` | 淡入淡出 | `in` 0–10s（0.8）· `out` 0–10s（1.5）· `curve` linear/expo（expo） |
+| `electro` | 电音 | `rate` 0.5–200Hz（30）· `depth` 0–1（0.8）· `drive` 0–1（0.35）· `bits` 3–16（8）· `mix` 0–1（0.85） |
+| `8bit` | 8bit | `rate` 500–44100Hz（11025）· `tone` 0–1（0.75）· `drive` 0–1（0）· `mix` 0–1（1） |
+| `4bit` | 4bit | `rate` 500–44100Hz（8000）· `tone` 0–1（0.6）· `drive` 0–1（0）· `mix` 0–1（1） |
+| `2bit` | 2bit | `rate` 500–44100Hz（4000）· `tone` 0–1（0.45）· `drive` 0–1（0）· `mix` 0–1（1） |
+
+* **只写要改的参数**，其余用注册表默认值，所以 XML 里可以只留 `<effect type="echo" mix="0.25"/>`。
+* 单位可带可不带：`-p time=450` 与 `-p time=450ms` 等价；数值 `450`、`0.25` 都行。
+* 布尔写 `true/false`、`on/off`、`是/否`；枚举写 `linear` / `expo`。
+* 中文类型名也认：`--type 回声`、`--type 立体`、`--type 电音`。
+* `8bit` / `4bit` / `2bit` 是降采样 + 位深压缩：`bits` 分别固定为 8 / 4 / 2 位（256 / 16 / 4 级电平），`rate` 越低越破、`tone` 越小越闷；三者都按素材自身峰值量化并还原电平，插入后轨道响度基本不变。
+
+### 13.3 例子
+
+```bat
+:: 先看有哪些参数
+python -m musicgen effect types
+
+:: 给吉他加 375ms 回声
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type echo -p time=375 -p feedback=0.3 -p mix=0.22
+
+:: 再加加宽与淡出（顺序即处理顺序）
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type 立体 -p width=1.7
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type fade -p in=1.2 -p out=2
+
+:: 调参 / 删参数 / 删效果
+python -m musicgen effect set songs\Song\Song.musicproj --track Guitar --index 1 -p feedback=0.45
+python -m musicgen effect set songs\Song\Song.musicproj --track Guitar --index 1 -p time=none
+python -m musicgen effect remove songs\Song\Song.musicproj --track Guitar --index 2
+
+:: 查看结果并渲染
+python -m musicgen effect list songs\Song\Song.musicproj --track Guitar
+python -m musicgen render songs\Song\Song.musicproj -o out\song.wav
+```
+
+### 13.4 注意事项
+
+* **顺序有意义**：`回声 → 立体` 与 `立体 → 回声` 听感不同，`effect list` 按 XML 里的顺序显示。
+* **未知类型 / 未知参数不中断渲染**：`validate` 只给警告，该条效果或该参数被跳过；`effect add/set` 是严格模式，直接报错（退出码 `1`）。
+* **越界值**：手写 XML 时夹到范围内并给警告；用 `effect add/set` 时直接拒绝。
+* **回声尾巴受工程长度限制**：超出 `length` 的部分会被截掉；需要更长余韵就加 `tail="3s"` 或加大 `length`。
+* **淡入淡出按「实际发声区间」算**：2 秒的轨在 60 秒工程里也只淡它自己的头尾，不会淡一整分钟。
+
+---
+
+## 14. 常见工作流
 
 **第一次跑通**
 
@@ -622,9 +693,9 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 14. 提示信息对照表
+## 15. 提示信息对照表
 
-### 14.1 工程解析（退出码 2）
+### 15.1 工程解析（退出码 2）
 
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
@@ -640,7 +711,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `工程里没有任何 <track>` | 一条音轨都没引用 | 加 `<track file="…"/>` |
 | `缺少 file 属性` | `<track>` 没写 `file` | 补上音轨文件路径 |
 
-### 14.2 忽略即警告（退出码 0，但值没生效）
+### 15.2 忽略即警告（退出码 0，但值没生效）
 
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
@@ -651,8 +722,11 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `bpm 无效: bpm 必须大于 0` | 音轨级 `bpm` ≤ 0 | 删掉该属性即跟随工程 |
 | `非常用采样率 22050，仍会使用` | `sampleRate` 不在推荐表里 | 一般 44100 或 48000 |
 | `N 个音符起点超出循环周期 X 拍，不会被播放` | `loopLen` 比内容短 | 加大 `loopLen` 或把音符挪回周期内 |
+| `未知音效 'x'，已忽略（可用：…）` | `<effect type="…">` 写错类型 | 用 `effect types` 里的注册键或中文名 |
+| `音效「回声」没有参数 wrong，已忽略` | 参数名拼错 / 不属于该效果 | 照 `effect types` 的参数表写 |
+| `参数 width 超出 0–2 ×，已按 2× 处理` | 数值越界 | 手写 XML 会被夹到范围内；要精确控制改用 `effect set` |
 
-### 14.3 渲染警告（stderr，前缀 `!`）
+### 15.3 渲染警告（stderr，前缀 `!`）
 
 | 提示 | 含义 | 处理 |
 | --- | --- | --- |
@@ -661,10 +735,11 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | `乐器 'x' 的采样音域为 …，B1 超出范围，该音改用内置合成器` | 音高超出采样范围 | 移调 / 换音区 |
 | `没有可渲染的音轨（全部静音或为空）` | 全静音、全空轨，或独奏轨为空 | 检查 `mute` / `solo` |
 | `峰值 +2.3dBFS 已超出 0dB，已做削波保护` | 关了归一化又太响 | 降 `masterGain`，或去掉 `--no-normalize` |
+| `音效 回声（echo）在音轨「Melody」上处理失败，该效果已跳过：…` | 效果内部异常（参数异常或注册表被改动） | 修参数或删掉该效果；其余音轨与效果照常渲染 |
 
 ---
 
-## 15. 与 GUI 的能力对照
+## 16. 与 GUI 的能力对照
 
 | 能力 | CLI | GUI |
 | --- | --- | --- |
@@ -674,6 +749,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 | 新增轨道 | `track add` | 文件 → 新建轨道… / `Ctrl+Shift+T` 对话框 |
 | 管理乐器注册表 | `instrument list/add/remove/reset` | 编辑 → 乐器注册表… / `Ctrl+Shift+G` |
 | 编辑轨道 / 音符 | `track edit`、`note add/set/del` | 属性面板 / 音符面板，应用即写回 |
+| 编辑效果链 | `effect add/set/remove`、`effect list` | 属性面板「效果」分组：添加… / 编辑… / 删除 |
 | 改工程参数 | 编辑 XML | 属性面板 / 音符面板，应用即写回 |
 | 校验 | `validate` | 载入时自动校验，问题进输出窗口 |
 | 下载音源 | `samples fetch` | 「渲染 → 下载音源」按工程用到的乐器批量下 |
@@ -683,7 +759,7 @@ python -m musicgen render song.musicproj -o dist\song-f32.wav --float32 :: 后�
 
 ---
 
-## 16. 速查卡
+## 17. 速查卡
 
 ```bat
 :: 看版本 / 帮助
@@ -716,6 +792,14 @@ python -m musicgen instrument list
 python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96
 python -m musicgen instrument remove flute
 python -m musicgen instrument reset
+
+:: 效果链
+python -m musicgen effect types
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type echo -p time=375 -p mix=0.22
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type 立体 -p width=1.7
+python -m musicgen effect set songs\Song\Song.musicproj --track Guitar --index 1 -p feedback=0.45
+python -m musicgen effect list songs\Song\Song.musicproj --track Guitar
+python -m musicgen effect remove songs\Song\Song.musicproj --track Guitar --index 2
 
 :: 界面
 py -3 -m musicgen gui songs\Song\Song.musicproj

@@ -6,7 +6,8 @@ MusicGen 是一个**用命令行驱动的多轨编曲渲染工具**：把一个 
 
 - **工程即文本**：一个工程文件 + 每条音轨一个文件，可读、可手改、可进 Git，适合脚本化批量生成。
 - **多轨混音**：每轨独立控制乐器、速度、音量、声像、混响、循环与移调，汇总成一首立体声成品。
-- **三种入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、管乐器）、桌面界面（钢琴卷帘、波形、试听），以及 **AI Skill**——仓库自带 `Skill/musicgen` 技能包，AI 助手说清需求就能一路做到 WAV，见 [§2.6](#26-ai-skill)。
+- **音效链**：每轨可串联 7 个预设音效——立体、回声、淡入淡出、电音，以及 8bit / 4bit / 2bit 三种位深压缩，参数写在 `<effect>` 里，CLI 与界面都能调。
+- **三种入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、调音效、管乐器）、桌面界面（钢琴卷帘、波形、试听），以及 **AI Skill**——仓库自带 `Skill/musicgen` 技能包，AI 助手说清需求就能一路做到 WAV，见 [§2.6](#26-ai-skill)。
 - **音色开源**：6 件真实采样乐器 + 1 套内置合成鼓组，缺采样时自动回退合成器，离线也能渲染。
 
 ```bat
@@ -37,7 +38,7 @@ py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
 ```
 
-仓库自带 5 个示例工程：
+仓库自带 6 个示例工程：
 
 | 示例 | 内容 |
 | --- | --- |
@@ -46,6 +47,7 @@ py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
 | `examples/twinkle` | 《小星星》完整编曲（四件乐器，42 秒） |
 | `examples/band` | 竖笛 + 吉他 + 架子鼓，8 小节 |
 | `examples/moonlight` | 贝多芬《月光》第一乐章 1 分钟钢琴独奏改编（附编曲脚本） |
+| `examples/daybreak` | 原创《晨光》16 小节，钢琴 + 吉他 + 小提琴 + 贝斯 + 鼓，带效果链 |
 
 ### 2.3 命令行
 
@@ -79,6 +81,14 @@ python -m musicgen instrument list
 python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96 --gain 8.5
 python -m musicgen instrument remove flute
 python -m musicgen instrument reset
+
+:: 音效：类型清单与效果链
+python -m musicgen effect types
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type echo -p time=375 -p mix=0.22
+python -m musicgen effect add songs\Song\Song.musicproj --track Guitar --type 立体 -p width=1.7
+python -m musicgen effect set songs\Song\Song.musicproj --track Guitar --index 1 -p feedback=0.45
+python -m musicgen effect list songs\Song\Song.musicproj --track Guitar
+python -m musicgen effect remove songs\Song\Song.musicproj --track Guitar --index 2
 ```
 
 退出码：`0` 成功 · `1` 参数/环境错误 · `2` 工程文件有错 · `3` 渲染失败 · `130` 中断。
@@ -95,6 +105,7 @@ python -m musicgen instrument reset
 
 <!-- tracks/violin.track.xml：乐器可写键名或中文名 -->
 <track name="Violin" instrument="violin" gain="-3dB" pan="0.22" reverb="0.35">
+  <effect type="stereo" width="1.5"/>                 <!-- 音效按顺序串联 -->
   <note time="0" dur="1" pitch="A4" vel="0.72"/>
   <note time="2" dur="2" pitch="C4,E4,G4" vel="0.6"/>   <!-- 逗号即和弦 -->
 </track>
@@ -107,6 +118,8 @@ python -m musicgen instrument reset
 ```
 
 时值单位是「拍」，支持 `1/4` 与 `0.5` 两种写法，也支持 `1/3` 三连音；循环轨用 `loop="true" loopLen="4"` 平铺整首。
+音效写在音符前面、按出现顺序串联：`<effect type="echo" time="375" feedback="0.3" mix="0.22"/>`，
+类型与参数用 `python -m musicgen effect types` 查看。
 完整字段规范见 [项目文档](docs/项目文档.md)。
 
 ### 2.5 界面
@@ -116,6 +129,7 @@ python -m musicgen instrument reset
 - 卷帘：`滚轮` 上下 · `Alt+滚轮` 左右 · `Ctrl+滚轮` 缩放 · 中键拖动平移
 - 常用键：`Ctrl+N` 新建工程 · `Ctrl+Shift+T` 新建轨道 · `Ctrl+Shift+Delete` 删除音轨 · `Ctrl+Shift+V` 单独查看音轨 · `Ctrl+Shift+G` 乐器注册表 · `Ctrl+R` 渲染 · `Ctrl+S` 导出
 - 渲染完可直接试听，波形页有播放头；单个音轨可单独试听并导出分轨 WAV
+- 属性面板「效果」分组可添加 / 编辑 / 删除音效，滑杆调参后随「应用并保存」写入音轨 XML
 
 ### 2.6 AI Skill
 
@@ -162,17 +176,50 @@ python -m musicgen samples fetch --instrument flute
 - 界面「编辑 → 乐器注册表…」（`Ctrl+Shift+G`）可添加、删除、恢复默认，改完下拉框立即刷新
 - 删除条目不会删已下载的采样缓存
 
-### 3.3 待实现
+### 3.3 音效效果链（已实现）
 
-- [ ] **音效叠加 / 效果链**：目前每轨只有一个干湿比固定的混响。计划支持串联效果（EQ、压缩、延迟、失真、chorus）与独立 send 总线，工程里可写 `<effect type="delay" .../>`
-- [ ] **自定义音色**：导入自己的采样（WAV/AIFF），自定义键位映射、循环点、力度分层与包络，而不只是套用 GM 音色
-- [ ] **多力度层采样**：现在力度只影响音量与亮度，真采样应分 soft / medium / hard 多层切换
-- [ ] **延音踏板与连奏**：弦乐揉弦、铜管滑音、钢琴 una corda 踏板
-- [ ] **速度渐变（tempo map）**：目前只有全局 BPM + 逐轨 BPM
-- [ ] **MIDI 导入 / 导出**：把现有工程与 DAW 打通
-- [ ] **批量分轨导出**：一次导出全部音轨的 stems，而不是逐轨点
-- [ ] **更多音色**：长笛、单簧管、弦乐群、电钢琴、贝斯等
-- [ ] **MP3 / FLAC 导出**：需要引入编码器依赖
+每轨可写多条 `<effect>`，按顺序串联，处理位置在声像之后、汇入母带之前：
+
+| 类型 | 中文 | 参数（默认值） |
+| --- | --- | --- |
+| `stereo` | 立体 | `width` 0–2（1.6）、`haas` 0–30ms（0）、`mix` 0–1（1） |
+| `echo` | 回声 | `time` 20–2000ms（320）、`feedback` 0–0.9（0.36）、`tone` 0–1（0.5）、`pingpong`（开）、`mix` 0–1（0.3） |
+| `fade` | 淡入淡出 | `in` 0–10s（0.8）、`out` 0–10s（1.5）、`curve` linear/expo（expo） |
+| `electro` | 电音 | `rate` 0.5–200Hz（30）、`depth` 0–1（0.8）、`drive` 0–1（0.35）、`bits` 3–16（8）、`mix` 0–1（0.85） |
+| `8bit` | 8bit | `rate` 500–44100Hz（11025）、`tone` 0–1（0.75）、`drive` 0–1（0）、`mix` 0–1（1） |
+| `4bit` | 4bit | `rate` 500–44100Hz（8000）、`tone` 0–1（0.6）、`drive` 0–1（0）、`mix` 0–1（1） |
+| `2bit` | 2bit | `rate` 500–44100Hz（4000）、`tone` 0–1（0.45）、`drive` 0–1（0）、`mix` 0–1（1） |
+
+- 参数只写要改的，其余用注册表默认值；`type` 可写注册键或中文名
+- `8bit` / `4bit` / `2bit` 是「降采样 + 量化」的位深压缩，分别留 256 / 16 / 4 级电平；量化按素材自身峰值做，插入后轨道响度不变
+- 未知类型 / 参数只警告不中断渲染；数值越界会夹到范围内
+- 新增效果只要在 `core/effects.py` 写一个 `@register_effect` 的 `Effect` 子类，CLI、界面、解析与回写自动接上
+
+### 3.4 待实现
+
+按对“写一首歌”的实际阻碍排序：`P0` 是现在就会卡住的，`P2` 是锦上添花。
+
+**编曲与编辑**
+
+- [ ] `P0` **撤销 / 重做**：界面每次编辑直接写回 XML，改错了只能手改文件或重开工程
+- [ ] `P1` **自动化曲线**：音量、声像、效果参数随时间变化（渐强渐弱、声像扫），现在只能整轨一个定值，渐变要靠 `fade` 效果或另开一条轨
+- [ ] `P1` **轨道复制 / 排序**：音符可以 `Ctrl+D` 复制，整条音轨不行，也不能在列表里拖动顺序
+- [ ] `P2` **速度渐变（tempo map）**：目前只有全局 BPM + 逐轨 BPM
+- [ ] `P2` **延音踏板与连奏**：弦乐揉弦、铜管滑音、钢琴 una corda 踏板
+- [ ] `P2` **多力度层采样**：现在力度只影响音量与亮度，真采样应分 soft / medium / hard 多层切换
+
+**混音与音质**
+
+- [ ] `P0` **轨道电平表**：混音时看不到每轨峰值 / RMS，只能渲染完看总电平。实测同一份工程里钢琴和吉他能差 13dB，得写脚本逐轨渲染才发现
+- [ ] `P1` **更多效果**：EQ、压缩、失真、chorus；以及独立 send 总线与母带效果（当前 4 个都是插入效果，且只能挂在音轨上）
+- [ ] `P2` **自定义音色**：导入自己的采样（WAV/AIFF），自定义键位映射、循环点、力度分层与包络，而不只是套用 GM 音色
+- [ ] `P2` **更多音色**：长笛、单簧管、弦乐群、电钢琴、贝斯等
+- [ ] `P2` **MP3 / FLAC 导出**：需要引入编码器依赖
+
+**互操作与批量**
+
+- [ ] `P1` **MIDI 导入 / 导出**：把现有工程与 DAW 打通
+- [ ] `P1` **批量分轨导出**：一次导出全部音轨的 stems，而不是逐轨点
 
 ---
 
