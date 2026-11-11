@@ -19,6 +19,14 @@ from html import escape
 from pathlib import Path
 from typing import Any, Iterable
 
+from .effects import (
+    EffectError,
+    EffectSpec,
+    effect_class,
+    effect_types_text,
+    normalize_effect_params,
+    resolve_effect,
+)
 from .notes import midi_to_name, parse_pitches
 from .project import (
     Note,
@@ -37,7 +45,9 @@ TRACK_HINT = (
     " 音符：time 起点、dur 时值（单位都是「拍」，支持 1/3 这类分数），"
     "pitch 用音名，多个音名用逗号分隔就是和弦，vel 是 0-1 的力度。\n"
     '   例如 <note time="0" dur="1" pitch="C4,E4,G4" vel="0.7"/>。\n'
-    "   也可以用 musicgen 的 note add 命令添加音符，用法见 docs/CLI文档.md "
+    "   音效写在音符前面，按顺序串联：<effect type=\"echo\" time=\"320\" mix=\"0.3\"/>，"
+    "可用类型见 musicgen effect types。\n"
+    "   也可以用 musicgen 的 note / effect 命令编辑，用法见 docs/CLI文档.md "
 )
 
 #: 模型字段 -> (XML 属性名, 值格式化函数)
@@ -420,6 +430,130 @@ def isolate_project(project: Project, index: int) -> tuple[int, Project]:
         raise TrackEditError(f"音轨下标超出范围 0-{len(project.tracks) - 1}：{index}")
     single = replace(project.tracks[index], mute=False, solo=False)
     return index, replace(project, tracks=[single], warnings=[])
+
+
+# ---------------------------------------------------------------------------
+# 效果链（直接改 <effect> 节点，保留注释与排版）
+# ---------------------------------------------------------------------------
+
+
+def _effect_tree(project_path: str | Path, selector: str | int):
+    project = _load(project_path)
+    _, track = find_track(project, selector)
+    if track.path is None:
+        raise TrackEditError("这条音轨没有对应文件")
+    tree = _tree(track.path)
+    root = tree.getroot()
+    if root.tag != "track":
+        raise TrackEditError(f"{track.path.name} 的根节点不是 <track>")
+    return tree, root, track
+
+
+def _insert_effect(root: ET.Element, element: ET.Element) -> None:
+    """把 <effect> 插到第一个 <note> 前面（没有音符就追加到末尾）。"""
+    children = list(root)
+    notes = [el for el in children if el.tag == "note"]
+    if notes:
+        target = children.index(notes[0])
+        indent = _indent_of(root, children, target)
+        element.tail = "\n" + indent
+        root.insert(target, element)
+        return
+    if children:
+        children[-1].tail = "\n" + _indent_of(root, children, len(children))
+    element.tail = "\n"
+    root.append(element)
+
+
+def add_effect(
+    project_path: str | Path,
+    selector: str | int,
+    type_name: str,
+    params: dict[str, Any] | None = None,
+) -> tuple[TrackRef, EffectSpec]:
+    """给音轨追加一个效果，返回 ``(轨道信息, 效果条目)``。"""
+    project_path = Path(project_path).expanduser().resolve()
+    index, track = find_track(_load(project_path), selector)
+    if track.path is None:
+        raise TrackEditError("这条音轨没有对应文件")
+    key = resolve_effect(type_name)
+    if key is None:
+        raise TrackEditError(f"未知音效「{type_name}」。可用：{effect_types_text()}")
+    try:
+        values, _ = normalize_effect_params(key, params or {}, strict=True)
+    except EffectError as exc:
+        raise TrackEditError(str(exc)) from None
+
+    spec = EffectSpec(key, values)
+    tree = _tree(track.path)
+    root = tree.getroot()
+    _insert_effect(root, ET.Element("effect", spec.to_attrs()))
+    _write(tree, track.path)
+    updated = _load(project_path)
+    return _ref(updated, index, track.path, project_path), spec
+
+
+def set_effect(
+    project_path: str | Path,
+    selector: str | int,
+    position: int,
+    **params: Any,
+) -> list[tuple[str, str, str]]:
+    """改第 *position* 个效果（1-based）的参数，返回 ``[(参数, 旧值, 新值)]``。
+
+    值为 ``None`` 表示删除该属性（回到注册表默认值）。
+    """
+    tree, root, track = _effect_tree(project_path, selector)
+    effects = _children(root, "effect")
+    if not 1 <= position <= len(effects):
+        raise TrackEditError(f"音效序号超出范围 1-{len(effects)}：{position}")
+    element = effects[position - 1]
+    key = resolve_effect(element.get("type"))
+    if key is None:
+        raise TrackEditError(f"第 {position} 个效果的 type 无法识别：{element.get('type')!r}")
+    cls = effect_class(key)
+
+    applied: list[tuple[str, str, str]] = []
+    for name, value in params.items():
+        param = cls.param(name)
+        if param is None:
+            raise TrackEditError(
+                f"音效「{cls.LABEL}」没有参数 {name}（可用：{'、'.join(cls.param_keys())}）"
+            )
+        old = element.get(name) or "（默认）"
+        if value is None:
+            element.attrib.pop(name, None)
+            applied.append((name, old, "（删除）"))
+            continue
+        try:
+            parsed, clamped = param.coerce(value)
+        except EffectError as exc:
+            raise TrackEditError(str(exc)) from None
+        if clamped:
+            raise TrackEditError(f"参数 {name} 超出范围 {param.range_text()}")
+        element.set(name, param.format(parsed))
+        applied.append((name, old, param.display(parsed)))
+    _write(tree, track.path)  # type: ignore[arg-type] - _effect_tree 已保证 path 非空
+    return applied
+
+
+def remove_effect(
+    project_path: str | Path, selector: str | int, position: int
+) -> dict[str, str]:
+    """删掉第 *position* 个效果（1-based），返回它原来的属性。"""
+    tree, root, track = _effect_tree(project_path, selector)
+    effects = _children(root, "effect")
+    if not 1 <= position <= len(effects):
+        raise TrackEditError(f"音效序号超出范围 1-{len(effects)}：{position}")
+    element = effects[position - 1]
+    attributes = dict(element.attrib)
+    siblings = list(root)
+    place = siblings.index(element)
+    if place > 0 and element.tail:
+        siblings[place - 1].tail = element.tail
+    root.remove(element)
+    _write(tree, track.path)  # type: ignore[arg-type] - _effect_tree 已保证 path 非空
+    return attributes
 
 
 # ---------------------------------------------------------------------------

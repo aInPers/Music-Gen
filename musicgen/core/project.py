@@ -20,6 +20,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
+from .effects import (
+    EffectError,
+    EffectSpec,
+    effect_types_text,
+    normalize_effect_params,
+    resolve_effect,
+)
 from .notes import MIDI_MAX, MIDI_MIN, PitchError, midi_to_name, parse_pitches
 
 PROJECT_SUFFIX = ".musicproj"
@@ -73,6 +80,7 @@ class Track:
     mute: bool = False
     solo: bool = False
     transpose: int = 0
+    effects: list[EffectSpec] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
 
     # ---- 派生量 -------------------------------------------------------
@@ -288,6 +296,32 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
     # ---- 音符 ----
     pending_time = 0.0
     for index, el in enumerate(root):
+        if el.tag == "effect":
+            label = f"{where} 第 {index + 1} 个 <effect>"
+            raw_type = el.get("type")
+            if not raw_type:
+                issues.append(Issue("warning", label, "缺少 type 属性，已忽略"))
+                continue
+            key = resolve_effect(raw_type)
+            if key is None:
+                issues.append(
+                    Issue(
+                        "warning",
+                        label,
+                        f"未知音效 {raw_type!r}，已忽略（可用：{effect_types_text()}）",
+                    )
+                )
+                continue
+            raw = {k: v for k, v in el.attrib.items() if k != "type"}
+            try:
+                params, problems = normalize_effect_params(key, raw)
+            except EffectError as exc:
+                issues.append(Issue("warning", label, str(exc)))
+                continue
+            for problem in problems:
+                issues.append(Issue("warning", label, problem))
+            track.effects.append(EffectSpec(key, params))
+            continue
         if el.tag != "note":
             if el.tag not in ("comment", "meta"):
                 issues.append(Issue("warning", where, f"忽略未知节点 <{el.tag}>"))
@@ -474,6 +508,8 @@ def save_track(track: Track, path: Path | None = None) -> Path:
         root.set("solo", "true")
     if track.transpose:
         root.set("transpose", str(track.transpose))
+    for spec in track.effects:
+        ET.SubElement(root, "effect", spec.to_attrs())
     for note in track.notes:
         pitches = ",".join(midi_to_name(p) for p in note.pitches)
         ET.SubElement(
@@ -513,6 +549,8 @@ def describe(project: Project) -> str:
             flags.append("静音")
         if track.solo:
             flags.append("独奏")
+        if track.effects:
+            flags.append("音效 " + " → ".join(spec.label() for spec in track.effects))
         if track.loop:
             period = track.period_beats(project.beats_per_bar)
             times = "无限" if track.loop_count <= 0 else f"{track.loop_count} 次"

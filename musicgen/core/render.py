@@ -9,6 +9,7 @@ from typing import Callable
 
 import numpy as np
 
+from .effects import create_effect
 from .instruments import InstrumentRegistry
 from .project import Project, Track
 
@@ -30,6 +31,7 @@ class TrackStat:
     notes: int
     peak: float
     seconds: float
+    effects: str = ""
 
 
 @dataclass
@@ -111,6 +113,14 @@ def _pan_gains(pan: float) -> tuple[float, float]:
     """等功率声像。"""
     theta = (max(-1.0, min(1.0, pan)) + 1.0) * math.pi / 4.0
     return math.cos(theta), math.sin(theta)
+
+
+def _effect_label(spec) -> str:
+    """效果名；注册表里没有该类型时退回注册键，保证渲染不因显示失败而中断。"""
+    try:
+        return spec.label()
+    except Exception:  # noqa: BLE001 - 旧工程里可能留有已删除的效果
+        return getattr(spec, "type", "?")
 
 
 def _note_offsets(track: Track, project: Project, length_s: float) -> list[float]:
@@ -221,11 +231,29 @@ def render_project(
         left, right = _pan_gains(track.pan)
         buffer[0] *= left
         buffer[1] *= right
+
+        # 效果链：按 XML 里出现的顺序串联，位置在声像之后、汇入总线之前
+        for spec in track.effects:
+            label = _effect_label(spec)
+            report(done / total_notes * 0.9, f"音效：{label}（{track.name}）")
+            try:
+                buffer = create_effect(spec.type, spec.params).process(buffer, sr)
+            except Exception as exc:  # noqa: BLE001 - 单个效果出错不该让整首渲染失败
+                warnings.append(
+                    f"音效 {label}（{spec.type}）在音轨「{track.name}」上处理失败，"
+                    f"该效果已跳过：{type(exc).__name__}: {exc}"
+                )
+
         master += buffer
 
         peak = float(np.max(np.abs(buffer)))
         sounding = float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr
-        stats.append(TrackStat(track.name, track.instrument, track_notes, peak, sounding))
+        stats.append(
+            TrackStat(
+                track.name, track.instrument, track_notes, peak, sounding,
+                " → ".join(_effect_label(spec) for spec in track.effects),
+            )
+        )
         notes_rendered += track_notes
         report(done / total_notes * 0.9, f"渲染音轨：{track.name}")
 

@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from . import __version__
+from .cli_effects import register_effect_commands
 from .cli_instruments import RegistryError, register_instrument_commands
 from .cli_tracks import TrackEditError, register_track_commands
 from .core.project import ProjectError, create_project, describe, load_project
@@ -158,7 +159,8 @@ def cmd_render(args: argparse.Namespace) -> int:
           f"({result.duration / max(elapsed, 1e-6):.1f}× 实时)")
 
     for stat in result.track_stats:
-        print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} 峰值 {stat.peak:.3f}")
+        effects = f" · 音效 {stat.effects}" if stat.effects else ""
+        print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} 峰值 {stat.peak:.3f}{effects}")
     for warning in result.warnings:
         print(f"  ! {warning}", file=sys.stderr)
     return 0
@@ -309,6 +311,8 @@ def build_parser() -> argparse.ArgumentParser:
   python -m musicgen note add demo.musicproj --track Guitar --time 0 --dur 1 --pitch C4
   python -m musicgen track edit demo.musicproj --track 1 --gain -4dB --no-loop
   python -m musicgen track list demo.musicproj
+  python -m musicgen effect types
+  python -m musicgen effect add demo.musicproj --track 1 --type echo -p time=450 -p mix=0.3
 """,
     )
     parser.add_argument("-V", "--version", action="version", version=f"MusicGen {__version__}")
@@ -371,6 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_track_commands(sub)
     register_instrument_commands(sub)
+    register_effect_commands(sub)
     return parser
 
 

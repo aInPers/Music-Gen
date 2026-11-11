@@ -118,6 +118,8 @@ def cmd_track_list(args: argparse.Namespace) -> int:
             flags.append("独奏")
         if track.loop:
             flags.append("循环")
+        if track.effects:
+            flags.append("音效 " + " → ".join(spec.label() for spec in track.effects))
         print(
             f"  {index:>2}. {track.name:<16} {track.instrument:<9} "
             f"音符 {len(track.notes):>3}  {track.gain_db:+g}dB  "
