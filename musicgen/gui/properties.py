@@ -227,7 +227,10 @@ class PropertiesPanel(tk.Frame):
         for key in ("gain_db", "pan", "reverb", "loop", "mute", "solo"):
             self.vars[key].set_enabled(editable)  # type: ignore[attr-defined]
         self.entry_loop.configure(state="normal" if editable else "disabled")
-        self.instrument.set_enabled(editable)  # type: ignore[attr-defined]
+        is_audio = track is not None and track.audio_path is not None
+        is_patch = track is not None and getattr(track, "patch_path", None) is not None
+        # 音频轨与脚本轨的“乐器”不由下拉框决定，锁住避免误以为能换
+        self.instrument.set_enabled(editable and not (is_audio or is_patch))  # type: ignore[attr-defined]
 
         if track is None:
             self.labels["name"].configure(text="未选中音轨")
@@ -241,14 +244,29 @@ class PropertiesPanel(tk.Frame):
 
         key = fetch.resolve(track.instrument)
         items = instrument_items()
-        if key not in dict(items):  # 未注册的乐器也让它显示出来
+        if is_audio:
+            items.insert(0, ("audio", "音频轨（原样混音）"))
+        elif is_patch:
+            items.insert(0, ("synth", "合成音脚本（patch）"))
+        elif key not in dict(items):  # 未注册的乐器也让它显示出来
             items.append((key, f"{key}（未注册）"))
         self.instrument.set_items(items)
-        self.instrument.set(key)
-        self._refresh_sample_state(instrument_note)
+        self.instrument.set("audio" if is_audio else ("synth" if is_patch else key))
+        if is_audio:
+            self.labels["samples"].configure(
+                text=f"音频 {track.audio_duration:.1f}s · {track.audio_path.name}", fg=T["ok"]
+            )
+        elif is_patch:
+            self.labels["samples"].configure(
+                text=f"合成音脚本 · {track.patch_path.name}", fg=T["ok"]
+            )
+        else:
+            self._refresh_sample_state(instrument_note)
 
         self.labels["name"].configure(text=track.name)
-        self.labels["notes"].configure(text=str(len(track.notes)))
+        self.labels["notes"].configure(
+            text=f"音频 {track.audio_duration:.1f}s" if is_audio else str(len(track.notes))
+        )
         self.labels["file"].configure(text=track.path.name if track.path else "—")
         self.vars["gain_db"].set(track.gain_db)      # type: ignore[attr-defined]
         self.vars["pan"].set(track.pan)              # type: ignore[attr-defined]

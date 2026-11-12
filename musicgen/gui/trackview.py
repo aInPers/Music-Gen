@@ -136,7 +136,12 @@ class TrackWindow(tk.Toplevel):
             return
         self.title(f"音轨 · {track.name}")
         self.title_var.set(track.name)
-        self.subtitle_var.set(fetch.display(track.instrument))
+        if track.audio_path is not None:
+            self.subtitle_var.set(f"音频轨 · {track.audio_path.name}")
+        elif getattr(track, "patch_path", None) is not None:
+            self.subtitle_var.set(f"合成音脚本 · {track.patch_path.name}")
+        else:
+            self.subtitle_var.set(fetch.display(track.instrument))
         beats = project.beats_per_bar
         flags = []
         if track.loop:

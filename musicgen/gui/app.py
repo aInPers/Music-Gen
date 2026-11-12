@@ -14,9 +14,13 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+
+import numpy as np
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+from ..analysis import AnalysisOptions, analyze
+from ..analysis import separate as analysis_separate
 from ..core import trackedit
 from ..core.notes import PitchError, parse_pitches
 from ..core.project import (
@@ -26,10 +30,11 @@ from ..core.project import (
     load_project,
     save_track,
 )
-from ..core.render import RenderResult, render_project
+from ..core.render import METER_HOP, RenderResult, render_project
 from ..core.wavio import write_wav
 from ..samples import fetch
 from . import layout, menubar, theme, widgets
+from .analyzedialog import AnalyzeDialog
 from .docking import DockManager
 from .dragdock import AREA_NAMES, DockDrag
 from .info import ProjectInfoPage
@@ -38,8 +43,10 @@ from .newproject import NewProjectDialog
 from .newtrack import NewTrackDialog
 from .notepanel import NotePanel
 from .output import OutputPanel
+from .multitrack import TrackRollPage
 from .pianoroll import PianoRollPage
 from .player import AudioPlayer, PlaybackUnavailable
+from .renderdialog import RenderDialog
 from .properties import PropertiesPanel
 from .statusbar import StatusBar
 from .toolbar import ToolBar
@@ -52,6 +59,7 @@ T = theme.PALETTE
 
 PAGES = [
     ("roll", "钢琴卷帘", "keys"),
+    ("tracks", "分轨卷帘", "dock"),
     ("wave", "波形", "wave"),
     ("info", "工程信息", "info"),
 ]
@@ -193,9 +201,11 @@ class MusicGenApp(tk.Tk):
 
         self.roll = PianoRollPage(self.page_host, on_pick_track=self.select_track,
                                   on_pick_note=self.select_note)
+        self.tracks_page = TrackRollPage(self.page_host, on_pick_track=self.select_track)
         self.wave = WaveformPage(self.page_host)
         self.info = ProjectInfoPage(self.page_host)
-        self.pages = {"roll": self.roll, "wave": self.wave, "info": self.info}
+        self.pages = {"roll": self.roll, "tracks": self.tracks_page,
+                      "wave": self.wave, "info": self.info}
         self.tabs.set_tabs(PAGES, self.page)
         self.roll.pack(fill="both", expand=True)
 
@@ -259,14 +269,17 @@ class MusicGenApp(tk.Tk):
         self.bind("<Control-Shift-KeyPress-V>", lambda _e: self.on_view_track())
         self.bind("<Control-Shift-KeyPress-I>", lambda _e: self.on_toggle_isolate())
         self.bind("<Control-Shift-KeyPress-G>", lambda _e: self.on_instrument_registry())
+        self.bind("<Control-Shift-KeyPress-A>", lambda _e: self.on_analyze_audio())
+        self.bind("<Control-Shift-KeyPress-R>", lambda _e: self.on_render_tracks())
         self.bind("<Control-Shift-Delete>", lambda _e: self.on_delete_track())
         self.bind("<Control-r>", lambda _e: self.on_render())
         self.bind("<Control-s>", lambda _e: self.on_export())
         self.bind("<Control-Return>", lambda _e: self.on_apply())
         self.bind("<Control-l>", lambda _e: self.toggle_panel("output"))
         self.bind("<Control-Key-1>", lambda _e: self.goto_page("roll"))
-        self.bind("<Control-Key-2>", lambda _e: self.goto_page("wave"))
-        self.bind("<Control-Key-3>", lambda _e: self.goto_page("info"))
+        self.bind("<Control-Key-2>", lambda _e: self.goto_page("tracks"))
+        self.bind("<Control-Key-3>", lambda _e: self.goto_page("wave"))
+        self.bind("<Control-Key-4>", lambda _e: self.goto_page("info"))
         self.bind("<F4>", lambda _e: self.toggle_panel("properties"))
         self.bind("<Control-Shift-KeyPress-E>", lambda _e: self.toggle_panel("explorer"))
         self.bind("<F5>", lambda _e: self.on_refresh())
@@ -307,6 +320,8 @@ class MusicGenApp(tk.Tk):
         self.tabs.set_active(key)
         if key == "roll":
             self.roll.schedule_redraw()
+        elif key == "tracks":
+            self.tracks_page.schedule_redraw()
         elif key == "wave":
             self.wave.redraw()
 
@@ -366,6 +381,8 @@ class MusicGenApp(tk.Tk):
                     self._on_error(payload)
                 elif kind == "samples_done":
                     self._on_samples_done(payload)
+                elif kind == "analyze_done":
+                    self._on_analyze_done(payload)
         except queue.Empty:
             pass
         self._poll_timer = self.after(90, self._poll_queue)
@@ -474,6 +491,76 @@ class MusicGenApp(tk.Tk):
             "ok",
         )
         self.open_project(str(info["path"]))
+
+    def on_analyze_audio(self) -> None:
+        """文件 → 从音频重建工程：后台跑 Demucs + 转谱，完成后自动打开新工程。"""
+        if self._busy:
+            return
+        ok, reason = analysis_separate.availability()
+        if not ok:
+            messagebox.showerror(
+                "缺少分析依赖",
+                "音频分析需要 torch + demucs，当前环境不可用。\n\n"
+                "安装：py -3 -m pip install -r requirements.txt\n"
+                f"底层错误：{reason}",
+            )
+            self.log("音频分析不可用：缺少 torch/demucs，先安装依赖", "error")
+            return
+        dialog = AnalyzeDialog(self, default_dir=Path.cwd())
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        info = dialog.result
+        options = AnalysisOptions(
+            source=info["source"],
+            output=info["output"],
+            name=info["name"],
+            bpm=info["bpm"],
+            quantize=info["quantize"],
+            model=info["model"],
+            keep_stems=info["keep_stems"],
+            audio_tracks=info.get("audio_tracks", False),
+            force=info["force"],
+        )
+        self._stop_playback(reset=True)
+        self._set_busy(True, "正在分析音频（首次运行需下载模型）…")
+        self.log(
+            f"开始分析 {info['source'].name} → {info['output']}"
+            f"（模型 {info['model']} · 量化 {info['quantize']}）",
+            "ok",
+        )
+
+        def worker() -> None:
+            try:
+                result = analyze(
+                    options,
+                    progress=lambda f, m: self._queue.put(("progress", (f, m))),
+                )
+                self._queue.put(("analyze_done", result))
+            except Exception as exc:  # noqa: BLE001 - 统一走错误通道
+                self._queue.put(("error", f"分析失败：{type(exc).__name__}: {exc}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_analyze_done(self, result) -> None:
+        self._set_busy(False)
+        self.status.set_progress(1.0)
+        self.status.set_message(f"分析完成 · {len(result.tracks)} 条音轨")
+        self.after(1500, lambda: self.status.set_progress(None))
+        self.log(
+            f"分析完成：{result.project_path}（{len(result.tracks)} 轨 / "
+            f"{result.note_count} 音符 / {result.bpm:.1f}BPM / {result.key or '调性未知'} / "
+            f"耗时 {result.elapsed:.1f}s）",
+            "ok",
+        )
+        for draft in result.tracks:
+            self.log(
+                f"  · {draft.name} [{draft.instrument}] 音符 {len(draft.notes)} "
+                f"{draft.gain_db:+.1f}dB pan {draft.pan:+.2f} 置信 {draft.confidence:.2f}"
+            )
+        for warning in result.warnings:
+            self.log(warning, "warn")
+        self.open_project(str(result.project_path))
 
     def on_new_track(self) -> None:
         """菜单 / 工具栏 / 资源管理器右键 / Ctrl+Shift+T 的共用入口。"""
@@ -657,6 +744,8 @@ class MusicGenApp(tk.Tk):
 
         self.roll.set_project(project, self.selected)
         self.roll.set_only_selected(self.only_selected_track)
+        self.tracks_page.set_project(project)
+        self.tracks_page.set_selected(self.selected)
         self.info.set_project(project)
         self._refresh_explorer()
         self._select_ui(self.selected)
@@ -712,6 +801,7 @@ class MusicGenApp(tk.Tk):
     def _select_ui(self, index: int) -> None:
         self.roll.set_selected(index)
         self.roll.schedule_redraw()
+        self.tracks_page.set_selected(index)
         props = self.dock_manager.panel("properties")
         if props is not None:
             track = self._current_track()
@@ -943,12 +1033,30 @@ class MusicGenApp(tk.Tk):
 
     # ---------------------------------------------------------------- 渲染
     def on_render(self) -> None:
+        self._start_render(None)
+
+    def on_render_tracks(self) -> None:
+        """渲染…：勾选要参与混音的音轨。"""
+        if self.project is None or self._busy:
+            return
+        dialog = RenderDialog(self, self.project, self.selected)
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+        only = None if len(dialog.result) == len(self.project.tracks) else dialog.result
+        self._start_render(only)
+
+    def _start_render(self, only: list[int] | None) -> None:
         if self.project is None or self._busy:
             return
         self._stop_playback(reset=True)
         self._set_busy(True, "正在渲染…")
-        self.log(f"开始渲染 {self.project.name}")
         project = self.project
+        if only is None:
+            self.log(f"开始渲染 {project.name}")
+        else:
+            names = "、".join(project.tracks[index].name for index in only)
+            self.log(f"开始渲染 {project.name}（只渲 {len(only)} 条：{names}）")
 
         def worker() -> None:
             started = time.time()
@@ -956,6 +1064,7 @@ class MusicGenApp(tk.Tk):
                 result = render_project(
                     project,
                     progress=lambda f, m: self._queue.put(("progress", (f, m))),
+                    only=only,
                 )
                 self._queue.put(("render_done", (result, time.time() - started)))
             except Exception as exc:  # noqa: BLE001
@@ -1036,6 +1145,9 @@ class MusicGenApp(tk.Tk):
         self._stop_tick()
         self.roll.set_playhead(None)
         self.wave.set_playhead(None)
+        self.tracks_page.set_playhead(None)
+        self.tracks_page.set_levels({})
+        self.transport.reset_meter()
         if self.result is not None:
             self.transport.update_time(0.0, self.player.duration)
 
@@ -1072,9 +1184,48 @@ class MusicGenApp(tk.Tk):
             return
         position = self.player.position
         self.transport.update_time(position, self.player.duration)
+        self._update_meter(position)
         self.roll.set_playhead(position)
         self.wave.set_playhead(position)
+        self.tracks_page.set_playhead(position)
+        self.tracks_page.set_levels(self._track_levels(position))
         self._play_timer = self.after(40, self._tick)
+
+    def _update_meter(self, position: float) -> None:
+        """按播放位置取 50ms 窗口算 L/R 电平，喂给主电平表。"""
+        result = self.result
+        if result is None:
+            self.transport.reset_meter()
+            return
+        audio = result.audio
+        rate = max(1, result.sample_rate)
+        start = int(max(0.0, position) * rate)
+        width = max(1, int(0.05 * rate))
+        segment = audio[:, start:start + width]
+        if segment.size == 0:
+            self.transport.set_levels(0.0, 0.0)
+            return
+        left = float(np.sqrt(np.mean(np.square(segment[0], dtype=np.float64))))
+        row = segment[1] if segment.shape[0] > 1 else segment[0]
+        right = float(np.sqrt(np.mean(np.square(row, dtype=np.float64))))
+        self.transport.set_levels(left, right)
+
+    def _track_levels(self, position: float) -> dict[str, float]:
+        """按播放位置从各轨的 50ms 包络里取电平，供分轨卷帘的轨头电平条。"""
+        result = self.result
+        if result is None:
+            return {}
+        out: dict[str, float] = {}
+        for stat in result.track_stats:
+            envelope = stat.envelope
+            if envelope is None or envelope.size == 0:
+                out[stat.name] = 0.0
+                continue
+            index = int(max(0.0, position) / METER_HOP)
+            lo = max(0, min(envelope.size - 1, index - 1))
+            hi = max(lo + 1, min(envelope.size, index + 2))
+            out[stat.name] = float(envelope[lo:hi].max())
+        return out
 
     def _stop_tick(self) -> None:
         if self._play_timer is not None:

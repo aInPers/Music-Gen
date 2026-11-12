@@ -14,6 +14,8 @@ import time
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -33,6 +35,8 @@ try:
 
     from musicgen.core.notes import midi_to_name
     from musicgen.core.project import load_project
+    from musicgen.gui.analyzedialog import AnalyzeDialog
+    from musicgen.gui.renderdialog import RenderDialog
     from musicgen.gui.app import MusicGenApp
     from musicgen.gui.newproject import NewProjectDialog
     from musicgen.gui.newtrack import NewTrackDialog
@@ -299,10 +303,78 @@ class GuiTests(unittest.TestCase):
                 self.assertTrue(self.app.bind(f"<Alt-Key-{key}>"),
                                 f"Alt+{key.upper()} 未绑定")
         self.app.goto_page("roll")
-        self.app.menus["view"].invoke(1)      # 波形
+        self.app.menus["view"].invoke(_menu_index(self.app.menus["view"], "波形"))
         self.assertEqual(self.app.page, "wave")
+        self.app.menus["view"].invoke(_menu_index(self.app.menus["view"], "分轨卷帘"))
+        self.assertEqual(self.app.page, "tracks")
         self.app.menus["edit"].invoke(_menu_index(self.app.menus["edit"], "清空输出"))
         self.app.goto_page("roll")
+
+    def test_audio_track_project_opens(self) -> None:
+        from musicgen.core.wavio import write_wav
+
+        tmp = Path(tempfile.mkdtemp(prefix="musicgen_audio_"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "tracks").mkdir()
+        (tmp / "stems").mkdir()
+        write_wav(tmp / "stems" / "a.wav", np.zeros((2, 4410), dtype=np.float32), 44100)
+        (tmp / "Audio.musicproj").write_text(
+            '<musicproj name="Audio" bpm="120" sampleRate="44100" length="0.1s">'
+            '<track file="tracks/a.track.xml"/></musicproj>',
+            encoding="utf-8",
+        )
+        (tmp / "tracks" / "a.track.xml").write_text(
+            '<track name="A" instrument="audio"><audio file="../stems/a.wav"/></track>',
+            encoding="utf-8",
+        )
+        self.app.open_project(str(tmp / "Audio.musicproj"))
+        self.app.update()
+        self.assertIsNotNone(self.app.project)
+        self.assertIsNotNone(self.app.project.tracks[0].audio_path)
+        self.app.select_track(0)
+        self.app.update()
+        props = self.app.dock_manager.panel("properties")
+        self.assertIn("音频", props.labels["notes"].cget("text"))
+
+    def test_synth_patch_track_shows_script(self) -> None:
+        from musicgen.core.patch import load_patch
+
+        tmp = Path(tempfile.mkdtemp(prefix="musicgen_patch_"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "tracks").mkdir()
+        (tmp / "synths").mkdir()
+        load_patch("warm_pad").save(tmp / "synths" / "pad.synth.json")
+        (tmp / "Pad.musicproj").write_text(
+            '<musicproj name="Pad" bpm="120" sampleRate="44100" length="1s">'
+            '<track file="tracks/a.track.xml"/></musicproj>',
+            encoding="utf-8",
+        )
+        (tmp / "tracks" / "a.track.xml").write_text(
+            '<track name="Pad" instrument="synth" patch="../synths/pad.synth.json">'
+            '<note time="0" dur="1" pitch="C4"/></track>',
+            encoding="utf-8",
+        )
+        self.app.open_project(str(tmp / "Pad.musicproj"))
+        self.app.update()
+        self.assertIsNotNone(self.app.project.tracks[0].patch_path)
+        self.app.select_track(0)
+        self.app.update()
+        props = self.app.dock_manager.panel("properties")
+        self.assertIn("合成音脚本", props.labels["samples"].cget("text"))
+        self.assertFalse(props.instrument._enabled)
+
+    def test_analyze_dialog_defaults(self) -> None:
+        from musicgen.gui.analyzedialog import AnalyzeDialog
+
+        dialog = AnalyzeDialog(self.app)
+        try:
+            self.assertEqual(dialog.model_var.get(), "htdemucs_6s")
+            self.assertEqual(dialog.quant_var.get(), "1/16")
+            self.assertTrue(dialog.stems_var.get())
+            self.assertFalse(dialog.audio_var.get())
+            self.assertFalse(dialog.force_var.get())
+        finally:
+            dialog._cancel()
 
     def test_instrument_registry_dialog_refreshes_dropdown(self) -> None:
         from musicgen.gui import instrumentregistry as ir
@@ -314,7 +386,7 @@ class GuiTests(unittest.TestCase):
             self.app, on_changed=self.app.refresh_instrument_views
         )
         try:
-            self.assertEqual(len(dialog.tree.get_children()), 7)
+            self.assertEqual(len(dialog.tree.get_children()), len(registry.defaults()))
             registry.add(registry.load(), {
                 "key": "flute", "label": "长笛", "aliases": ["长笛"],
                 "kind": "sample", "gm": "flute", "midi_low": 60,
@@ -341,6 +413,27 @@ class GuiTests(unittest.TestCase):
             fetch.reload_registry()
             dialog.destroy()
             self.app.refresh_instrument_views()
+
+    def test_tracks_page_lanes_and_playhead(self) -> None:
+        """分轨卷帘：一轨一条泳道，播放头与轨头电平条能更新。"""
+        self.app.goto_page("tracks")
+        self._pump(0.3)
+        page = self.app.tracks_page
+        self.assertEqual(len(page._lanes), len(self.app.project.tracks))
+        self.assertEqual(len(page._meters), len(self.app.project.tracks))
+        page.set_playhead(1.0)
+        page.set_levels({self.app.project.tracks[0].name: 0.5})
+        self._pump(0.15)
+        self.assertIsNotNone(page._playhead_item)
+
+    def test_render_dialog_selects_tracks(self) -> None:
+        dialog = RenderDialog(self.app, self.app.project, 1)
+        self.app.update()
+        self.assertEqual(len(dialog._vars), len(self.app.project.tracks))
+        self.assertTrue(all(var.get() for var in dialog._vars))
+        dialog._only_current()
+        dialog._accept()
+        self.assertEqual(dialog.result, [1])
 
     def test_track_management_menu_entries(self) -> None:
         self.assertIsNotNone(_menu_index(self.app.menus["edit"], "乐器注册表…"))
@@ -728,6 +821,64 @@ class GuiTests(unittest.TestCase):
         self.app.on_stop_playback()
         self.app.update()
         self.assertEqual(self.app.player.position, 0.0)
+
+
+class AnalyzeDialogTests(unittest.TestCase):
+    """「从音频重建工程」：选中的文件要进输入框，不能和「音频轨」开关共用一个变量。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.mkdtemp(prefix="musicgen_analyze_")
+        cls.root = tkinter.Tk()
+        cls.root.withdraw()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.root.destroy()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self) -> None:
+        self.dialog = AnalyzeDialog(self.root, default_dir=Path(self.tmp))
+
+    def tearDown(self) -> None:
+        try:
+            self.dialog.destroy()
+        except tkinter.TclError:
+            pass
+
+    def _fake_choice(self, name: str):
+        audio = Path(self.tmp) / name
+        audio.write_bytes(b"RIFF")
+        from unittest import mock
+
+        from musicgen.gui import analyzedialog
+
+        return audio, mock.patch.object(
+            analyzedialog.filedialog, "askopenfilename", return_value=str(audio)
+        )
+
+    def test_browse_fills_entry_and_auto_fields(self) -> None:
+        audio, patch = self._fake_choice("song.mp3")
+        with patch:
+            self.dialog._browse_audio()
+        self.assertEqual(self.dialog.audio_var.get(), str(audio))
+        self.assertEqual(self.dialog.audio_entry.get(), str(audio))
+        self.assertEqual(self.dialog.name_var.get(), "song")
+        self.assertEqual(self.dialog.dir_var.get(), str(Path(self.tmp) / "song-musicproj"))
+
+    def test_audio_track_switch_keeps_path(self) -> None:
+        audio, patch = self._fake_choice("song.wav")
+        with patch:
+            self.dialog._browse_audio()
+        self.dialog.audio_tracks_var.set(True)
+        # 勾「音频轨」不能把路径变量顶掉（曾经的 bug：两个控件共用 audio_var）
+        self.assertEqual(self.dialog.audio_var.get(), str(audio))
+        self.dialog.dir_var.set(str(Path(self.tmp) / "out"))
+        self.dialog._start()
+        self.assertIsNotNone(self.dialog.result)
+        self.assertEqual(self.dialog.result["source"], audio)
+        self.assertTrue(self.dialog.result["audio_tracks"])
+        self.assertEqual(self.dialog.result["name"], "song")
 
 
 if __name__ == "__main__":

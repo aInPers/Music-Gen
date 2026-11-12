@@ -493,6 +493,33 @@ def add_effect(
     return _ref(updated, index, track.path, project_path), spec
 
 
+def set_effects(
+    project_path: str | Path,
+    selector: str | int,
+    specs: list,
+) -> TrackRef:
+    """整条替换音轨的效果链（按给定顺序写入，用于应用音效脚本）。"""
+    project_path = Path(project_path).expanduser().resolve()
+    index, track = find_track(_load(project_path), selector)
+    if track.path is None:
+        raise TrackEditError("这条音轨没有对应文件")
+    tree = _tree(track.path)
+    root = tree.getroot()
+    for child in list(root):
+        if child.tag == "effect":
+            root.remove(child)
+    position = len(root)
+    for offset, child in enumerate(root):
+        if child.tag != "effect":
+            position = offset
+            break
+    for step, spec in enumerate(specs):
+        root.insert(position + step, ET.Element("effect", spec.to_attrs()))
+    _write(tree, track.path)
+    updated = _load(project_path)
+    return _ref(updated, index, track.path, project_path)
+
+
 def set_effect(
     project_path: str | Path,
     selector: str | int,

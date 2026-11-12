@@ -244,6 +244,24 @@ class RenderTests(unittest.TestCase):
         peak = freqs[int(np.argmax(spectrum))]
         self.assertAlmostEqual(peak, 261.63, delta=4.0)
 
+    def test_render_only_selected_tracks(self) -> None:
+        """指定轨道渲染：只出勾选的轨，统计里带 RMS 与电平包络。"""
+        project = P.load_project(DEMO)
+        self.assertGreaterEqual(len(project.tracks), 2)
+        result = render_project(project, only=[0])
+        self.assertEqual(len(result.track_stats), 1)
+        stat = result.track_stats[0]
+        self.assertEqual(stat.name, project.tracks[0].name)
+        self.assertGreater(stat.rms, 0.0)
+        self.assertIsNotNone(stat.envelope)
+        self.assertGreater(stat.envelope.size, 0)
+
+    def test_render_all_when_selection_invalid(self) -> None:
+        project = P.load_project(DEMO)
+        result = render_project(project, only=[99])
+        self.assertEqual(len(result.track_stats), len(project.tracks))
+        self.assertTrue(any("改为渲染全部" in item for item in result.warnings))
+
     def test_length_and_normalize(self) -> None:
         project = self._project(length="2")  # 2 拍 @120BPM = 1 秒
         result = render_project(project)
@@ -371,6 +389,242 @@ class InstrumentTests(unittest.TestCase):
         cello_c, piano_c = centroid("cello"), centroid("piano")
         self.assertGreater(cello_c, 0.0)
         self.assertGreater(abs(cello_c - piano_c), 80.0)
+
+
+class AudioTrackTests(unittest.TestCase):
+    """音频轨：工程直接引用分轨 WAV，渲染时原样混音。"""
+
+    def test_load_render_and_roundtrip(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "tracks").mkdir()
+            (root / "stems").mkdir()
+            sr = 44100
+            t = np.arange(sr, dtype=np.float32) / sr
+            left = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+            right = (0.2 * np.sin(2 * np.pi * 660 * t)).astype(np.float32)
+            write_wav(root / "stems" / "clip.wav", np.vstack([left, right]), sr)
+
+            (root / "Audio.musicproj").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<musicproj name="Audio" bpm="120" sampleRate="44100" length="1s" '
+                'masterGain="0dB" normalize="false">\n'
+                '  <track file="tracks/clip.track.xml"/>\n'
+                '</musicproj>\n',
+                encoding="utf-8",
+            )
+            (root / "tracks" / "clip.track.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<track name="Clip" instrument="audio" gain="0dB" pan="0" reverb="0">\n'
+                '  <audio file="../stems/clip.wav" gain="0dB"/>\n'
+                '</track>\n',
+                encoding="utf-8",
+            )
+
+            project = P.load_project(root / "Audio.musicproj")
+            track = project.tracks[0]
+            self.assertIsNotNone(track.audio_path)
+            self.assertAlmostEqual(track.audio_duration, 1.0, places=3)
+            self.assertAlmostEqual(project.compute_length_seconds(), 1.0, places=3)
+            result = render_project(project)
+            self.assertAlmostEqual(result.peak, 0.3, delta=0.02)
+            self.assertEqual(result.track_stats[0].kind, "audio")
+            self.assertEqual(result.track_stats[0].notes, 0)
+
+            P.save_track(track, track.path)
+            reloaded = P.load_project(root / "Audio.musicproj")
+            self.assertEqual(reloaded.tracks[0].audio_path.name, "clip.wav")
+            self.assertAlmostEqual(reloaded.tracks[0].audio_duration, 1.0, places=3)
+
+    def test_missing_audio_file_is_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "tracks").mkdir()
+            (root / "Bad.musicproj").write_text(
+                '<musicproj name="Bad" bpm="120" sampleRate="44100">'
+                '<track file="tracks/a.track.xml"/></musicproj>',
+                encoding="utf-8",
+            )
+            (root / "tracks" / "a.track.xml").write_text(
+                '<track name="A" instrument="audio"><audio file="nope.wav"/></track>',
+                encoding="utf-8",
+            )
+            with self.assertRaises(P.ProjectError):
+                P.load_project(root / "Bad.musicproj")
+
+
+try:
+    import mido as _mido
+except ImportError:  # pragma: no cover - 没装 mido 时跳过 MIDI 用例
+    _mido = None
+
+
+@unittest.skipUnless(_mido is not None, "需要 mido")
+class MidiImportTests(unittest.TestCase):
+    """MIDI → 工程：声部拆分、乐器映射、采样打包。"""
+
+    def _write_midi(self, path: Path) -> Path:
+        midi = _mido.MidiFile(ticks_per_beat=480)
+        piano = _mido.MidiTrack()
+        midi.tracks.append(piano)
+        piano.append(_mido.MetaMessage("set_tempo", tempo=_mido.bpm2tempo(96), time=0))
+        piano.append(_mido.MetaMessage("time_signature", numerator=4, denominator=4, time=0))
+        piano.append(_mido.MetaMessage("track_name", name="Piano", time=0))
+        piano.append(_mido.Message("program_change", channel=0, program=0, time=0))
+        for pitch in (60, 64, 67, 72):
+            piano.append(_mido.Message("note_on", channel=0, note=pitch, velocity=90, time=0))
+        piano.append(_mido.Message("note_off", channel=0, note=60, time=480))
+        for pitch in (64, 67, 72):
+            piano.append(_mido.Message("note_off", channel=0, note=pitch, time=0))
+
+        bass = _mido.MidiTrack()
+        midi.tracks.append(bass)
+        bass.append(_mido.MetaMessage("track_name", name="Bass", time=0))
+        bass.append(_mido.Message("program_change", channel=1, program=33, time=0))
+        for _ in range(2):
+            bass.append(_mido.Message("note_on", channel=1, note=36, velocity=80, time=0))
+            bass.append(_mido.Message("note_off", channel=1, note=36, time=480))
+
+        drums = _mido.MidiTrack()
+        midi.tracks.append(drums)
+        drums.append(_mido.MetaMessage("track_name", name="Drums", time=0))
+        for _ in range(4):
+            drums.append(_mido.Message("note_on", channel=9, note=36, velocity=100, time=0))
+            drums.append(_mido.Message("note_off", channel=9, note=36, time=120))
+            drums.append(_mido.Message("note_on", channel=9, note=42, velocity=70, time=360))
+            drums.append(_mido.Message("note_off", channel=9, note=42, time=0))
+
+        midi.save(str(path))
+        return path
+
+    def test_parse_groups_parts_and_instruments(self):
+        from musicgen.midi_import import parse_midi
+
+        with tempfile.TemporaryDirectory() as temp:
+            source = self._write_midi(Path(temp) / "t.mid")
+            piece = parse_midi(source)
+        self.assertAlmostEqual(piece.bpm, 96.0, places=1)
+        self.assertEqual(piece.beats_per_bar, 4)
+        self.assertEqual(len(piece.parts), 3)
+        by_name = {part.name: part for part in piece.parts}
+        self.assertEqual(by_name["Piano"].instrument, "piano")
+        self.assertEqual(by_name["Bass"].instrument, "bass")
+        self.assertEqual(by_name["Drums"].instrument, "drums")
+        self.assertEqual(len(by_name["Piano"].notes), 4)
+        self.assertEqual(by_name["Drums"].notes[0].pitch, 36)
+
+    def test_write_project_renders_with_bundled_samples(self):
+        from musicgen.midi_import import parse_midi, write_project
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = self._write_midi(root / "t.mid")
+            project_path = write_project(parse_midi(source), root / "Song", bundle=True)
+            project = P.load_project(project_path)
+            self.assertEqual(len(project.tracks), 3)
+            local = project_path.parent / "instruments"
+            self.assertTrue(local.is_dir())
+            self.assertTrue(any(local.rglob("*.wav")) or any(local.rglob("*.mp3")))
+            result = render_project(project)
+            self.assertGreater(result.peak, 0.1)
+            self.assertEqual(len(result.track_stats), 3)
+
+    def test_bundle_project_command(self):
+        from musicgen.midi_import import bundle_instruments
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = self._write_midi(root / "t.mid")
+            from musicgen.midi_import import parse_midi, write_project
+
+            project_path = write_project(parse_midi(source), root / "Song", bundle=False)
+            project = P.load_project(project_path)
+            copied = bundle_instruments(project, project_path.parent)
+            self.assertIn("piano", copied)
+            self.assertTrue((project_path.parent / "instruments" / "piano").is_dir())
+
+
+class MasterEffectTests(unittest.TestCase):
+    """母带效果链：``<master>`` 下的 ``<effect>`` 在总线上、归一化之前生效。"""
+
+    def _write(self, root: Path, master: str) -> Path:
+        (root / "tracks").mkdir(exist_ok=True)
+        project_path = root / "Master.musicproj"
+        project_path.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<musicproj name="Master" bpm="120" sampleRate="44100" length="2s" '
+            'masterGain="0dB" normalize="false">\n'
+            f"{master}"
+            '  <track file="tracks/lead.track.xml"/>\n'
+            "</musicproj>\n",
+            encoding="utf-8",
+        )
+        (root / "tracks" / "lead.track.xml").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<track name="Lead" instrument="piano" gain="0dB" pan="0" reverb="0">\n'
+            '  <note time="0" dur="2" pitch="A4" vel="1"/>\n'
+            "</track>\n",
+            encoding="utf-8",
+        )
+        return project_path
+
+    def test_compressor_on_master_lowers_peak(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            plain = render_project(P.load_project(self._write(root, "")))
+            comp = render_project(P.load_project(self._write(
+                root,
+                '  <master><effect type="compressor" threshold="-30" ratio="6"/></master>\n',
+            )))
+            self.assertLess(comp.peak, plain.peak * 0.9)
+
+    def test_master_effects_parsed_and_unknown_skipped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = P.load_project(self._write(
+                root,
+                "  <master>\n"
+                '    <effect type="compressor" threshold="-18" ratio="2.5" release="120"/>\n'
+                '    <effect type="不存在的效果"/>\n'
+                "  </master>\n",
+            ))
+            self.assertEqual(len(project.master_effects), 1)
+            self.assertEqual(project.master_effects[0].type, "compressor")
+            self.assertAlmostEqual(project.master_effects[0].params["ratio"], 2.5)
+            messages = " ".join(issue.message for issue in project.warnings)
+            self.assertIn("不存在的效果", messages)
+            self.assertIn("母带效果", P.describe(project))
+
+
+class BendTests(unittest.TestCase):
+    """弯音：人声是一条流，工程要能把滑音写进去并原样读回来。"""
+
+    def test_bend_roundtrip(self) -> None:
+        track = P.Track(name="人声")
+        track.notes.append(P.Note(
+            time=0.0, dur=1.0, pitches=[60], velocity=0.8,
+            bend=[(0.0, 0.0), (0.5, -0.8), (1.0, 0.2)],
+        ))
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "vocal.track.xml"
+            P.save_track(track, path)
+            loaded = P._parse_track_file(path, [], 120.0)
+        self.assertEqual(len(loaded.notes), 1)
+        bend = loaded.notes[0].bend
+        self.assertIsNotNone(bend)
+        self.assertEqual(len(bend), 3)
+        self.assertAlmostEqual(bend[1][1], -0.8, places=2)
+
+    def test_bend_changes_rendered_pitch(self) -> None:
+        from musicgen.core.sampler import _bend_play
+        sr = 22050
+        t = np.arange(int(0.5 * sr)) / sr
+        tone = np.vstack([np.sin(2 * np.pi * 220.0 * t)] * 2).astype(np.float32)
+        straight = _bend_play(tone, 0, [])
+        bent = _bend_play(tone, 0, [(0.0, 0.0), (1.0, 2.0)])
+        # 上扬两个半音 = 采样播放更快 = 输出更短
+        self.assertLess(bent.shape[1], straight.shape[1])
+        self.assertGreater(bent.shape[1], 0)
 
 
 class DrumTests(unittest.TestCase):

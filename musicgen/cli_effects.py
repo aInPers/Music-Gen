@@ -11,6 +11,7 @@ import unicodedata
 from pathlib import Path
 
 from .core import trackedit as te
+from .core.effectscript import EffectScript, EffectScriptError
 from .core.effects import describe_effects, effect_class, resolve_effect
 from .core.project import load_project
 
@@ -124,6 +125,56 @@ def cmd_effect_remove(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_effect_save(args: argparse.Namespace) -> int:
+    project = load_project(_project_path(args))
+    index, track = te.find_track(project, args.track)
+    script = EffectScript.from_specs(
+        track.effects,
+        name=args.name or f"{track.name}-chain",
+        description=args.description or "",
+    )
+    target = Path(args.output).expanduser()
+    script.save(target)
+    print(f"已保存音轨 {index + 1}. {track.name} 的效果链 → {target}")
+    print(f"  {len(script.specs)} 个效果：{script.summary()}")
+    print(f"  复用到别的音轨：python -m musicgen effect apply <工程> --track <轨> --script \"{target}\"")
+    return 0
+
+
+def cmd_effect_apply(args: argparse.Namespace) -> int:
+    try:
+        script = EffectScript.load(args.script)
+    except EffectScriptError as exc:
+        raise TrackEditError(str(exc)) from exc
+    project_path = _project_path(args)
+    project = load_project(project_path)
+    index, track = te.find_track(project, args.track)
+    specs = list(track.effects) + list(script.specs) if args.append else list(script.specs)
+    if len(specs) > 12:
+        raise TrackEditError(f"效果链过长（{len(specs)} 个，上限 12）")
+    te.set_effects(project_path, args.track, specs)
+    print(f"已把脚本「{script.name}」应用到音轨 {index + 1}. {track.name}"
+          f"（{'追加' if args.append else '替换'}）")
+    print(f"  当前效果链：{' → '.join(script.labels()) if not args.append else ' → '.join(s.label() for s in specs)}")
+    return 0
+
+
+def cmd_effect_check(args: argparse.Namespace) -> int:
+    try:
+        script = EffectScript.load(args.script)
+    except EffectScriptError as exc:
+        print(f"脚本有问题：{exc}")
+        return 1
+    print(f"脚本正常：{script.name}（{len(script.specs)} 个效果）")
+    if script.description:
+        print(f"  说明：{script.description}")
+    for order, spec in enumerate(script.specs, 1):
+        print(f"  {order}. {spec.label()} {spec.type}  {spec.summary()}")
+    print("\n应用：python -m musicgen effect apply <工程> --track <轨> "
+          f"--script \"{args.script}\"")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # 参数注册
 # ---------------------------------------------------------------------------
@@ -166,6 +217,24 @@ def register_effect_commands(sub) -> None:
     p_set.add_argument("--index", type=int, required=True, help="1-based 音效序号")
     _add_params(p_set, "参数，可重复，如 -p feedback=0.5；值写 none 可删除该参数")
     p_set.set_defaults(func=cmd_effect_set)
+
+    p_save = effect_sub.add_parser("save", help="把音轨效果链存成 .fx.json 脚本")
+    _add_selector(p_save)
+    p_save.add_argument("-o", "--output", required=True, help="输出脚本路径，如 fx/guitar.fx.json")
+    p_save.add_argument("--name", default="", help="脚本名（默认 <音轨名>-chain）")
+    p_save.add_argument("--description", default="", help="用途说明")
+    p_save.set_defaults(func=cmd_effect_save)
+
+    p_apply = effect_sub.add_parser("apply", help="把 .fx.json 脚本应用到音轨（整链替换或追加）")
+    _add_selector(p_apply)
+    p_apply.add_argument("--script", required=True, help="音效脚本路径")
+    p_apply.add_argument("--append", action="store_true",
+                         help="追加到现有链尾（默认整链替换）")
+    p_apply.set_defaults(func=cmd_effect_apply)
+
+    p_check = effect_sub.add_parser("check", help="校验音效脚本（不写工程）")
+    p_check.add_argument("script", help="音效脚本路径")
+    p_check.set_defaults(func=cmd_effect_check)
 
     p_remove = effect_sub.add_parser("remove", help="删除第 N 个音效")
     _add_selector(p_remove)

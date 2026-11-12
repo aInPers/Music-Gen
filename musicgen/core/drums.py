@@ -298,7 +298,8 @@ class DrumInstrument:
     def describe(self) -> str:
         return "内置合成鼓组（GM 打击乐映射）"
 
-    def render_note(self, midi: int, velocity: float, duration: float) -> np.ndarray:
+    def render_note(self, midi: int, velocity: float, duration: float,
+                    bend: list[tuple[float, float]] | None = None) -> np.ndarray:
         velocity = max(0.0, min(1.0, float(velocity)))
         midi = int(midi)
         pad = PAD_OF_MIDI.get(midi, "snare")

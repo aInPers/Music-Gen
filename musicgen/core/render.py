@@ -5,11 +5,13 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 import numpy as np
 
+from .audioclip import AudioClipError, load_clip
 from .effects import create_effect
+from .eventbank import EventSampleBank
 from .instruments import InstrumentRegistry
 from .project import Project, Track
 
@@ -32,6 +34,10 @@ class TrackStat:
     peak: float
     seconds: float
     effects: str = ""
+    kind: str = "notes"  # notes | audio
+    rms: float = 0.0
+    #: 50ms 一帧的电平包络（0–1 幅度），供电平表按播放位置取值
+    envelope: np.ndarray | None = None
 
 
 @dataclass
@@ -140,11 +146,26 @@ def _note_offsets(track: Track, project: Project, length_s: float) -> list[float
     return [i * period_s for i in range(reps)]
 
 
+#: 电平表包络的帧长（秒）
+METER_HOP = 0.05
+
+
+def _envelope(mono: np.ndarray, sample_rate: int, hop: float = METER_HOP) -> np.ndarray:
+    """逐帧 RMS 包络（0–1 幅度），电平表按播放位置直接取值。"""
+    step = max(1, int(round(hop * sample_rate)))
+    count = mono.size // step
+    if count <= 0:
+        return np.zeros(1, dtype=np.float32)
+    frames = np.asarray(mono[: count * step], dtype=np.float32).reshape(count, step)
+    return np.sqrt(np.mean(np.square(frames, dtype=np.float64), axis=1)).astype(np.float32)
+
+
 def render_project(
     project: Project,
     cache_root: Path | None = None,
     progress: ProgressFn | None = None,
     normalize: bool | None = None,
+    only: Sequence[int] | None = None,
 ) -> RenderResult:
     """渲染整个工程，返回立体声 float32 数据。
 
@@ -154,15 +175,31 @@ def render_project(
     length_s = project.compute_length_seconds()
     frames = max(1, int(round(length_s * sr)))
     warnings: list[str] = []
+    event_root = (Path(project.path).parent / "samples") if project.path else None
+    # 工程自带音源优先：<工程目录>/instruments/<乐器>/*.wav，搬走也能渲染
+    if cache_root is None and project.path is not None:
+        local = Path(project.path).parent / "instruments"
+        if local.is_dir():
+            cache_root = local
     registry = InstrumentRegistry(
-        cache_root=cache_root, sample_rate=sr, warn=lambda m: warnings.append(m) if m not in warnings else None
+        cache_root=cache_root, sample_rate=sr,
+        warn=lambda m: warnings.append(m) if m not in warnings else None,
+        base_dir=project.path.parent if project.path else None,
     )
 
     def report(fraction: float, message: str) -> None:
         if progress:
             progress(max(0.0, min(1.0, fraction)), message)
 
-    active = [t for t in project.tracks if not t.mute]
+    candidates = list(project.tracks)
+    if only is not None:
+        # 指定轨道渲染：按工程里的下标选（0 起），越界的忽略
+        wanted = {int(index) for index in only}
+        candidates = [track for index, track in enumerate(project.tracks) if index in wanted]
+        if not candidates:
+            warnings.append("指定的轨道都不存在，已改为渲染全部")
+            candidates = list(project.tracks)
+    active = [t for t in candidates if not t.mute]
     if any(t.solo for t in active):
         active = [t for t in active if t.solo]
     if not active:
@@ -170,6 +207,9 @@ def render_project(
 
     master = np.zeros((2, frames), dtype=np.float32)
     note_cache: dict[tuple, np.ndarray] = {}
+    # 时间轴补全：同一分轨拆成多条工程轨时，同一起音的多个音符会挂同一个
+    # 立体声块。只播一次，否则该区间被叠 N 遍（响 +6dB 以上）。
+    played_events: set[tuple[str, int]] = set()
     stats: list[TrackStat] = []
     notes_rendered = 0
 
@@ -177,9 +217,27 @@ def render_project(
     done = 0
 
     for track in active:
-        instrument = registry.get(track.instrument)
+        instrument = registry.get_for_track(track) if track.notes else None
         buffer = np.zeros((2, frames), dtype=np.float32)
+        is_audio = track.audio_path is not None
+        if is_audio:
+            try:
+                buffer += load_clip(
+                    track.audio_path,
+                    sr,
+                    frames,
+                    offset=track.audio_offset,
+                    gain_db=track.audio_gain_db,
+                )
+            except AudioClipError as exc:
+                warnings.append(f"音频轨「{track.name}」读取失败，已跳过：{exc}")
+            if track.audio_offset + track.audio_duration > length_s + 0.01:
+                warnings.append(
+                    f"音频轨「{track.name}」超出工程长度，尾部已被截断"
+                    f"（{track.audio_offset + track.audio_duration:.2f}s > {length_s:.2f}s）"
+                )
         offsets = _note_offsets(track, project, length_s)
+        events = EventSampleBank(event_root, sr)
         bpm = track.resolve_bpm(project.bpm)
         sec_per_beat = 60.0 / bpm
         track_notes = 0
@@ -187,16 +245,24 @@ def render_project(
         for note in track.notes:
             dur_s = note.dur * sec_per_beat
             key = (
-                track.instrument,
+                getattr(instrument, "name", track.instrument),
+                track.patch_path,
                 tuple(note.pitches),
+                tuple(note.bend) if note.bend else None,
+                note.sample,
                 round(note.velocity / _VEL_Q),
                 round(dur_s / _DUR_Q),
             )
             seg = note_cache.get(key)
+            if seg is None and note.sample and events.has(note.sample):
+                # 逐事件采样：原样播放，变速比 0——音高与起音都不经过任何判断
+                seg = events.render(note.sample, dur_s)
             if seg is None:
                 pieces = []
                 for midi in note.pitches:
-                    piece = instrument.render_note(midi, note.velocity, dur_s)
+                    piece = instrument.render_note(
+                        midi, note.velocity, dur_s, bend=note.bend
+                    )
                     if piece is None:
                         continue
                     pieces.append(piece)
@@ -209,18 +275,28 @@ def render_project(
                     seg[:, : piece.shape[1]] += piece
                 note_cache[key] = seg
 
+            from_bank = bool(note.sample and events.has(note.sample))
+            # 精确回放：按原分轨起音秒定位，绕开「秒→拍→秒」的 BPM 往返误差。
+            # 若 time 被手动改过（与 src_time 相差 >5ms），则尊重编辑后的位置。
+            use_src = (note.src_time is not None
+                       and abs(note.time * sec_per_beat - note.src_time) <= 0.005)
             for offset in offsets:
-                start = int(round((note.time * sec_per_beat + offset) * sr))
+                base = note.src_time if use_src else note.time * sec_per_beat
+                start = int(round((base + offset) * sr))
                 if start >= frames:
+                    continue
+                if from_bank and (note.sample, start) in played_events:
                     continue
                 end = min(frames, start + seg.shape[1])
                 if end <= start:
                     continue
                 buffer[:, start:end] += seg[:, : end - start]
+                if from_bank:
+                    played_events.add((note.sample, start))
                 track_notes += 1
             done += 1
 
-        if track_notes == 0:
+        if track_notes == 0 and not is_audio:
             stats.append(TrackStat(track.name, track.instrument, 0, 0.0, 0.0))
             continue
 
@@ -229,6 +305,10 @@ def render_project(
             report(done / total_notes * 0.9, f"混响：{track.name}")
             buffer = _apply_reverb(buffer, track.reverb, sr)
         left, right = _pan_gains(track.pan)
+        if is_audio:
+            # 音频轨是立体声素材，pan=0 必须原样通过；等功率声像会给两声道各 -3dB
+            left *= math.sqrt(2.0)
+            right *= math.sqrt(2.0)
         buffer[0] *= left
         buffer[1] *= right
 
@@ -248,10 +328,15 @@ def render_project(
 
         peak = float(np.max(np.abs(buffer)))
         sounding = float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr
+        mono = np.mean(buffer, axis=0, dtype=np.float32)
+        track_rms = float(np.sqrt(np.mean(np.square(mono, dtype=np.float64)))) if mono.size else 0.0
         stats.append(
             TrackStat(
                 track.name, track.instrument, track_notes, peak, sounding,
                 " → ".join(_effect_label(spec) for spec in track.effects),
+                "audio" if is_audio else "notes",
+                rms=track_rms,
+                envelope=_envelope(mono, sr),
             )
         )
         notes_rendered += track_notes
@@ -259,6 +344,16 @@ def render_project(
 
     report(0.92, "母带处理")
     master *= db_to_gain(project.master_gain_db)
+    for spec in project.master_effects:
+        label = _effect_label(spec)
+        report(0.93, f"母带音效：{label}")
+        try:
+            master = create_effect(spec.type, spec.params).process(master, sr)
+        except Exception as exc:  # noqa: BLE001 - 单个效果出错不该让整首渲染失败
+            warnings.append(
+                f"母带音效 {label}（{spec.type}）处理失败，已跳过："
+                f"{type(exc).__name__}: {exc}"
+            )
 
     end_fade = min(int(END_FADE * sr), frames)
     if end_fade > 1:

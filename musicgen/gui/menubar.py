@@ -112,6 +112,9 @@ def build(root: tk.Misc, app) -> MenuBar:
     file_menu.add_command(label="新建轨道…", accelerator="Ctrl+Shift+T", command=app.on_new_track)
     file_menu.add_command(label="打开工程…", accelerator="Ctrl+O", command=app.on_open)
     file_menu.add_separator()
+    file_menu.add_command(label="从音频重建工程…", accelerator="Ctrl+Shift+A",
+                          command=app.on_analyze_audio)
+    file_menu.add_separator()
     file_menu.add_command(label="应用音轨参数", accelerator="Ctrl+Enter", command=app.on_apply)
     file_menu.add_command(label="导出 WAV…", accelerator="Ctrl+S", command=app.on_export)
     file_menu.add_separator()
@@ -144,9 +147,11 @@ def build(root: tk.Misc, app) -> MenuBar:
     view_menu = theme.make_menu(b_view)
     view_menu.add_command(label="钢琴卷帘", accelerator="Ctrl+1",
                           command=lambda: app.goto_page("roll"))
-    view_menu.add_command(label="波形", accelerator="Ctrl+2",
+    view_menu.add_command(label="分轨卷帘", accelerator="Ctrl+2",
+                          command=lambda: app.goto_page("tracks"))
+    view_menu.add_command(label="波形", accelerator="Ctrl+3",
                           command=lambda: app.goto_page("wave"))
-    view_menu.add_command(label="工程信息", accelerator="Ctrl+3",
+    view_menu.add_command(label="工程信息", accelerator="Ctrl+4",
                           command=lambda: app.goto_page("info"))
     view_menu.add_separator()
 
@@ -187,6 +192,8 @@ def build(root: tk.Misc, app) -> MenuBar:
 
     render_menu = theme.make_menu(b_render)
     render_menu.add_command(label="渲染工程", accelerator="Ctrl+R", command=app.on_render)
+    render_menu.add_command(label="渲染选中轨道…", accelerator="Ctrl+Shift+R",
+                            command=app.on_render_tracks)
     render_menu.add_command(label="预览（播放/暂停）", accelerator="Space", command=app.on_play)
     render_menu.add_command(label="停止预览", accelerator="Esc", command=app.on_stop_playback)
     render_menu.add_separator()

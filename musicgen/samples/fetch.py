@@ -58,6 +58,8 @@ class InstrumentSource:
     midi_high: int = 108
     note_range_label: str = ""
     extra: dict = field(default_factory=dict)
+    kind: str = "sample"          # sample | synth
+    patch: str = ""               # kind=synth 时的脚本引用（内置名或路径）
 
     def url_for(self, note_name: str, mirror_index: int) -> str:
         return self.url_templates[mirror_index].format(
@@ -84,6 +86,7 @@ _FLUID_HOME = _registry.FLUID_HOME
 #: 其它模块直接引用这些对象，所以注册表变更时必须原地更新（不能整个替换），
 #: 否则已经 import 的模块会一直拿着旧字典。
 SOURCES: dict[str, InstrumentSource] = {}
+SYNTHS: dict[str, InstrumentSource] = {}
 BUILTIN: dict[str, str] = {}
 LABELS: dict[str, str] = {}
 ALIASES: dict[str, str] = {}
@@ -98,6 +101,7 @@ def reload_registry(entries: list[dict] | None = None) -> list[dict]:
     """
     data = _registry.load() if entries is None else entries
     sources: dict[str, InstrumentSource] = {}
+    synths: dict[str, InstrumentSource] = {}
     builtins: dict[str, str] = {}
     labels: dict[str, str] = {}
     aliases: dict[str, str] = {}
@@ -110,8 +114,31 @@ def reload_registry(entries: list[dict] | None = None) -> list[dict]:
         for alias in entry.get("aliases") or []:
             aliases[alias] = key
             aliases[alias.lower()] = key
-        if entry.get("kind") == "builtin":
+        kind = entry.get("kind") or "sample"
+        if kind == "builtin":
             builtins[key] = entry.get("description") or "内置乐器"
+            continue
+        if kind == "synth":
+            ref = str(entry.get("patch") or "")
+            # 脚本写成相对路径时，相对注册表文件解析；否则换个工作目录就找不到
+            if ref.lower().endswith(".json") and not Path(ref).is_absolute():
+                candidate = _registry.path().parent / ref
+                if candidate.is_file():
+                    ref = str(candidate.resolve())
+            synths[key] = InstrumentSource(
+                key=key,
+                title=entry.get("title") or f"合成音脚本 — {key}",
+                license="MusicGen 内置合成音脚本",
+                homepage="",
+                extension="",
+                url_templates=[],
+                midi_low=int(entry.get("midi_low", 21)),
+                midi_high=int(entry.get("midi_high", 108)),
+                note_range_label=entry.get("range_label") or "",
+                kind="synth",
+                patch=ref,
+            )
+            gains[key] = float(entry.get("gain") or 0) or 8.0
             continue
         urls = list(entry.get("urls") or _registry.fluid_mirrors(entry.get("gm", "")))
         sources[key] = InstrumentSource(
@@ -127,6 +154,7 @@ def reload_registry(entries: list[dict] | None = None) -> list[dict]:
         )
         gains[key] = float(entry.get("gain") or 0) or 10.0
     SOURCES.clear(), SOURCES.update(sources)
+    SYNTHS.clear(), SYNTHS.update(synths)
     BUILTIN.clear(), BUILTIN.update(builtins)
     LABELS.clear(), LABELS.update(labels)
     ALIASES.clear(), ALIASES.update(aliases)
@@ -142,6 +170,22 @@ def instrument_gain(key: str) -> float | None:
 def instrument_keys() -> list[str]:
     """界面下拉框里的全部乐器（按注册表顺序）。"""
     return list(LABELS)
+
+
+def is_synth(key: str) -> bool:
+    return resolve(key) in SYNTHS
+
+
+def patch_spec(key: str) -> str:
+    """合成音色对应的脚本引用；采样乐器返回空串。"""
+    source = SYNTHS.get(resolve(key))
+    return source.patch if source else ""
+
+
+def source_for(key: str) -> InstrumentSource | None:
+    """采样或合成音色的元数据（音域、标签用）。"""
+    resolved = resolve(key)
+    return SOURCES.get(resolved) or SYNTHS.get(resolved)
 
 
 reload_registry()
@@ -349,6 +393,9 @@ def available_notes(instrument: str, cache_root: Path | None = None) -> list[int
     from ..core.notes import parse_pitch
 
     instrument = resolve(instrument)
+    if instrument in SYNTHS:
+        source = SYNTHS[instrument]
+        return list(range(int(source.midi_low), int(source.midi_high) + 1))
     source = SOURCES.get(instrument)
     ext = source.extension if source else "wav"
     folder = cache_dir_for(instrument, cache_root)

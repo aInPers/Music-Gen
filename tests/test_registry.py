@@ -54,17 +54,40 @@ class RegistryTests(_RegistryCase):
         file.unlink()  # setUp 的 reset 已写过一次，这里模拟「首次运行」
         self.assertFalse(file.is_file())
         entries = registry.load()
-        self.assertEqual(len(entries), 7)
+        self.assertEqual(len(entries), len(registry.defaults()))
         self.assertTrue(file.is_file())
         data = json.loads(file.read_text(encoding="utf-8"))
         self.assertEqual(data["version"], registry.VERSION)
         self.assertEqual([e["key"] for e in data["instruments"]][0], "piano")
         self.assertEqual(fetch.instrument_keys(),
-                         ["piano", "cello", "violin", "trumpet", "recorder",
-                          "guitar", "drums"])
+                         [entry["key"] for entry in registry.defaults()])
         self.assertIn("drums", fetch.BUILTIN)
         self.assertEqual(fetch.resolve("大提琴"), "cello")
         self.assertEqual(fetch.display("violin"), "小提琴 (violin)")
+
+    def test_old_version_gets_new_synth_entries(self) -> None:
+        """v2 的旧注册表只缺新条目：加载时补齐 bass/vocal/合成音色，用户参数不动。"""
+        file = registry.path()
+        file.write_text(json.dumps({
+            "version": 2,
+            "instruments": [{
+                "key": "piano", "label": "我的钢琴", "kind": "sample",
+                "gm": "acoustic_grand_piano", "midi_low": 21, "midi_high": 108,
+                "gain": 12.5,
+            }],
+        }), encoding="utf-8")
+        entries = registry.load()
+        keys = {entry["key"] for entry in entries}
+        self.assertIn("piano", keys)
+        self.assertIn("bass", keys)
+        self.assertIn("vocal", keys)
+        self.assertIn("synth_pad", keys)
+        piano = next(entry for entry in entries if entry["key"] == "piano")
+        self.assertEqual(piano["label"], "我的钢琴")
+        self.assertEqual(piano["gain"], 12.5)
+        fetch.reload_registry(entries)
+        self.assertEqual(fetch.patch_spec("synth_pad"), "warm_pad")
+        self.assertTrue(fetch.is_synth("合成垫"))
 
     def test_add_sample_instrument(self) -> None:
         entry = registry.add(registry.load(), dict(FLUTE))
@@ -112,7 +135,7 @@ class RegistryTests(_RegistryCase):
         registry.add(registry.load(), updated, force=True)
         fetch.reload_registry()
         self.assertEqual(fetch.LABELS["flute"], "短笛")
-        self.assertEqual(len(registry.load()), 8)
+        self.assertEqual(len(registry.load()), len(registry.defaults()) + 1)
 
     def test_remove_builtin_and_reset(self) -> None:
         registry.remove(registry.load(), "drums")
@@ -121,7 +144,7 @@ class RegistryTests(_RegistryCase):
         self.assertNotIn("drums", fetch.instrument_keys())
         registry.reset()
         fetch.reload_registry()
-        self.assertEqual(len(registry.load()), 7)
+        self.assertEqual(len(registry.load()), len(registry.defaults()))
         self.assertIn("drums", fetch.BUILTIN)
         with self.assertRaises(registry.RegistryError):
             registry.remove(registry.load(), "不存在")
@@ -138,7 +161,7 @@ class RegistryTests(_RegistryCase):
         file = registry.path()
         file.write_text("{ this is not json", encoding="utf-8")
         entries = registry.load()
-        self.assertEqual(len(entries), 7)
+        self.assertEqual(len(entries), len(registry.defaults()))
         self.assertEqual(file.read_text(encoding="utf-8"), "{ this is not json")
 
     def test_environment_override(self) -> None:
@@ -154,9 +177,10 @@ class CliRegistryTests(_RegistryCase):
         return code, out.getvalue(), err.getvalue()
 
     def test_full_flow(self) -> None:
+        base = len(registry.defaults())
         code, out, _ = self.run_cli("instrument", "list")
         self.assertEqual(code, 0)
-        self.assertIn("7 件", out)
+        self.assertIn(f"{base} 件", out)
         self.assertIn("架子鼓", out)
 
         code, out, _ = self.run_cli(
@@ -170,7 +194,7 @@ class CliRegistryTests(_RegistryCase):
         self.assertEqual(fetch.resolve("长笛声部"), "flute")
 
         code, out, _ = self.run_cli("instrument", "list")
-        self.assertIn("8 件", out)
+        self.assertIn(f"{base + 1} 件", out)
         code, out, _ = self.run_cli("instrument", "path")
         self.assertEqual(code, 0)
         self.assertIn("instruments.json", out)
@@ -182,8 +206,8 @@ class CliRegistryTests(_RegistryCase):
         registry.add(registry.load(), dict(FLUTE))
         code, out, _ = self.run_cli("instrument", "reset")
         self.assertEqual(code, 0)
-        self.assertIn("7 件", out)
-        self.assertEqual(len(registry.load()), 7)
+        self.assertIn(f"{base} 件", out)
+        self.assertEqual(len(registry.load()), base)
 
     def test_add_errors_exit_one(self) -> None:
         code, _, err = self.run_cli("instrument", "add", "Bad Key", "--name", "X",

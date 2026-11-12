@@ -1,3 +1,17 @@
+# 渲染与界面
 numpy>=1.24
 soundfile>=0.12
 sounddevice>=0.4
+scipy>=1.10
+
+# 音频分析（musicgen analyze / 界面「从音频重建工程」）
+# 体积较大：torch 约 130MB，Demucs 权重首次运行再下载约 300MB。
+# 只做渲染、不用分析功能时可以删掉下面两行。
+torch>=2.1
+demucs>=4.1
+
+# MIDI 导入（musicgen import-midi）
+mido>=1.3
+
+# 可选：更好的转谱模型（权重需在 HuggingFace 接受许可后下载）
+# muscriptor>=0.4

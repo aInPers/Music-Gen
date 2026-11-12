@@ -119,6 +119,10 @@ class TransportBar(tk.Frame):
         self.seek = SeekBar(self, on_seek=on_seek)
         self.seek.pack(side="left", fill="x", expand=True, padx=(0, 10))
 
+        self.meter = widgets.LevelMeter(self, width=104, height=16, channels=2,
+                                        background=T["chrome"])
+        self.meter.pack(side="right", padx=(0, 12))
+
         volume_box = tk.Frame(self, bg=T["chrome"])
         volume_box.pack(side="right", padx=(0, 12))
         tk.Label(volume_box, text="音量", bg=T["chrome"], fg=T["text_faint"],
@@ -142,6 +146,12 @@ class TransportBar(tk.Frame):
         self.btn_toggle.set_enabled(enabled)
         self.btn_stop.set_enabled(enabled)
         self.volume.set_enabled(enabled)
+
+    def set_levels(self, left: float, right: float) -> None:
+        self.meter.set_levels([left, right])
+
+    def reset_meter(self) -> None:
+        self.meter.reset()
 
     def update_time(self, position: float, duration: float) -> None:
         self.time_label.configure(text=f"{_fmt(position)} / {_fmt(duration)}")

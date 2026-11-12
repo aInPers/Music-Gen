@@ -34,6 +34,8 @@ INSTRUMENT_GAIN: dict[str, float] = {
     "trumpet": 9.0,
     "recorder": 5.0,
     "guitar": 7.0,
+    "bass": 10.0,
+    "vocal": 8.0,
 }
 DEFAULT_INSTRUMENT_GAIN = 10.0
 
@@ -90,6 +92,35 @@ def _lowpass(audio: np.ndarray, cutoff_hz: float, sample_rate: int) -> np.ndarra
     return out
 
 
+def _bend_play(audio: np.ndarray, shift: int,
+               bend: list[tuple[float, float]]) -> np.ndarray:
+    """按弯音曲线做时变重采样：逐输出样本累加变速比，再线性插值取值。
+
+    人声的滑音与颤音是连续的，用「音符 + 弯音曲线」表示比切成几十个短音符
+    干净得多；这里把曲线还原成采样播放速率的连续变化，所以听起来是一条流
+    而不是台阶。
+    """
+    if not bend or audio.shape[1] < 8:
+        return audio
+    positions = np.array([float(pos) for pos, _ in bend], dtype=np.float64)
+    semitones = np.array([float(value) for _, value in bend], dtype=np.float64)
+    base = 2.0 ** (shift / 12.0)
+    count = max(2, int(audio.shape[1] / max(base, 1e-3)))
+    grid = np.linspace(0.0, 1.0, count)
+    curve = np.interp(grid, positions, semitones)
+    ratio = base * (2.0 ** (curve / 12.0))
+    index = np.cumsum(ratio)
+    limit = audio.shape[1] - 2
+    keep = index <= limit
+    if int(keep.sum()) < 2:
+        return audio
+    index = index[keep]
+    left = np.floor(index).astype(np.int64)
+    frac = (index - left).astype(np.float32)
+    out = audio[:, left] * (1.0 - frac) + audio[:, left + 1] * frac
+    return out.astype(np.float32)
+
+
 @dataclass
 class _CachedSample:
     audio: np.ndarray
@@ -109,12 +140,16 @@ class SampleInstrument:
         cache_root: Path | None = None,
         sample_rate: int = 44100,
         warn: Callable[[str], None] | None = None,
+        raw: bool = False,
     ) -> None:
         self.name = name
         self.cache_root = cache_root
         self.sample_rate = sample_rate
+        #: 原曲采样（从分轨里切出来的）：电平和音色都已经是对的了，
+        #: 不再做电平补偿，也不再按力度加低通，否则等于把原音二次染色。
+        self.raw = raw
         # 优先用注册表里登记的电平补偿，内置的 INSTRUMENT_GAIN 作为兜底
-        self.instrument_gain = (
+        self.instrument_gain = 1.0 if raw else (
             fetch.instrument_gain(name)
             or INSTRUMENT_GAIN.get(name, DEFAULT_INSTRUMENT_GAIN)
         )
@@ -162,8 +197,13 @@ class SampleInstrument:
         return cached
 
     # ---- 渲染单个音 ---------------------------------------------------
-    def render_note(self, midi: int, velocity: float, duration: float) -> np.ndarray | None:
-        """渲染一个音，返回 (2, N) float32；无采样时返回 None。"""
+    def render_note(self, midi: int, velocity: float, duration: float,
+                    bend: list[tuple[float, float]] | None = None) -> np.ndarray | None:
+        """渲染一个音，返回 (2, N) float32；无采样时返回 None。
+
+        ``bend`` 是音符内部的弯音曲线 ``[(0..1 位置, 半音偏离), …]``，
+        给了就做时变重采样，把滑音还原成连续音高。
+        """
         nearest = self._nearest(midi)
         if nearest is not None and abs(midi - nearest) > MAX_SAMPLE_SHIFT:
             if not self._range_warned:
@@ -188,14 +228,17 @@ class SampleInstrument:
 
         audio = cached.audio
         shift = midi - cached.source_midi
-        if shift:
+        if bend:
+            audio = _bend_play(audio, shift, bend)
+        elif shift:
             audio = _resample(audio, 2.0 ** (shift / 12.0))
 
         gain = self.instrument_gain * (max(0.0, min(1.0, velocity)) ** 1.4)
         audio = audio * gain
 
-        # 弱奏更暗：截止频率随力度从 4kHz 抬到 18kHz
-        cutoff = 4000.0 * (4.5 ** max(0.0, min(1.0, velocity)))
+        # 弱奏更暗：截止频率随力度从 4kHz 抬到 18kHz。
+        # 原曲采样本身就带着演奏的力度变化，再加一层就会糊掉。
+        cutoff = float("inf") if self.raw else 4000.0 * (4.5 ** max(0.0, min(1.0, velocity)))
         if cutoff < self.sample_rate * 0.45:
             audio = _lowpass(audio, cutoff, self.sample_rate)
 
@@ -240,7 +283,8 @@ class SynthInstrument:
     def describe(self) -> str:
         return f"内置合成器（乐器 '{self.name}' 暂无采样）"
 
-    def render_note(self, midi: int, velocity: float, duration: float) -> np.ndarray:
+    def render_note(self, midi: int, velocity: float, duration: float,
+                    bend: list[tuple[float, float]] | None = None) -> np.ndarray:
         sr = self.sample_rate
         hold = max(1, int(round(duration * sr)))
         tail = int(RELEASE_TAIL * sr)

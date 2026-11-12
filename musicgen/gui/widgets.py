@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
@@ -683,3 +684,80 @@ class LogView(tk.Frame):
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
         self.text.configure(state="disabled")
+
+
+class LevelMeter(tk.Canvas):
+    """电平表：-60–0dBFS，支持 1–2 个声道，带峰值保持。
+
+    ``set_levels`` 传**线性幅度**（0–1）。起音立即跟上，释放按帧衰减，
+    所以看起来像硬件表头而不是数字跳数。
+    """
+
+    FLOOR_DB = -60.0
+    RELEASE = 0.72          # 每次刷新保留的比例，约 300ms 落回
+    PEAK_HOLD = 0.35        # 峰值标记每秒回落多少（dB）
+
+    def __init__(self, master: tk.Misc, *, width: int = 120, height: int = 12,
+                 channels: int = 1, background: str | None = None) -> None:
+        super().__init__(master, width=width, height=height,
+                         bg=background or T["chrome"], highlightthickness=0, bd=0)
+        self._channels = max(1, min(2, int(channels)))
+        self._levels = [0.0] * self._channels
+        self._peaks = [0.0] * self._channels
+        self._last_time = 0.0
+
+    # ---- API ----------------------------------------------------------
+    def set_levels(self, values) -> None:
+        values = list(values)[: self._channels]
+        while len(values) < self._channels:
+            values.append(0.0)
+        now = tk._default_root.tk.call("clock", "milliseconds") / 1000.0 if tk._default_root else 0.0
+        elapsed = max(0.0, now - self._last_time) if self._last_time else 0.0
+        self._last_time = now
+        changed = False
+        for index, value in enumerate(values):
+            value = max(0.0, min(1.0, float(value)))
+            old = self._levels[index]
+            level = value if value >= old else max(value, old * self.RELEASE)
+            self._levels[index] = level
+            peak = max(value, self._peaks[index] - self.PEAK_HOLD * max(elapsed, 0.016))
+            self._peaks[index] = peak
+            changed = changed or abs(level - old) > 1e-4
+        if changed or any(self._peaks):
+            self._render()
+
+    def reset(self) -> None:
+        self._levels = [0.0] * self._channels
+        self._peaks = [0.0] * self._channels
+        self._render()
+
+    # ---- 绘制 ---------------------------------------------------------
+    def _render(self) -> None:
+        self.delete("all")
+        width = max(1, self.winfo_width())
+        height = max(1, self.winfo_height())
+        gap = 1 if self._channels > 1 else 0
+        bar_h = max(2, (height - gap * (self._channels - 1)) // self._channels)
+        for channel in range(self._channels):
+            top = channel * (bar_h + gap)
+            self._draw_bar(0, top, width, bar_h, self._levels[channel],
+                           self._peaks[channel])
+
+    def _draw_bar(self, x: int, y: int, width: int, height: int,
+                  level: float, peak: float) -> None:
+        self.create_rectangle(x, y, x + width, y + height, fill=T["editor"], outline="")
+        db = 20.0 * math.log10(max(level, 1e-5))
+        ratio = max(0.0, min(1.0, (db - self.FLOOR_DB) / -self.FLOOR_DB))
+        filled = int(round(ratio * width))
+        if filled > 0:
+            color = T["ok"] if db < -18 else (T["warn"] if db < -6 else T["error"])
+            self.create_rectangle(x, y, x + filled, y + height, fill=color, outline="")
+        peak_db = 20.0 * math.log10(max(peak, 1e-5))
+        if peak_db > self.FLOOR_DB:
+            px = int(round(max(0.0, min(1.0, (peak_db - self.FLOOR_DB) / -self.FLOOR_DB)) * width))
+            px = min(width - 1, max(1, px))
+            self.create_line(x + px, y, x + px, y + height, fill="#FFFFFF", width=1)
+        # -6dB / -18dB 刻度
+        for mark_db in (-6.0, -18.0):
+            mx = int(round(((mark_db - self.FLOOR_DB) / -self.FLOOR_DB) * width))
+            self.create_line(x + mx, y, x + mx, y + height, fill=T["border_soft"])

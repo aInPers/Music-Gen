@@ -63,6 +63,15 @@ class Note:
     dur: float
     pitches: list[int]
     velocity: float = 0.8
+    #: 弯音曲线 ``[(0..1 位置, 半音偏离), …]``。人声、弦乐、推弦不是一个音高按到底，
+    #: 靠它把滑音与颤音写进工程；单音轨也可为空。
+    bend: list[tuple[float, float]] | None = None
+    #: 逐事件采样名（``samples/<name>.wav``）。有它就原样播放这个音自己的片段，
+    #: 不经过任何音高判断——音高、起音、音色都是原的。
+    sample: str | None = None
+    #: 精确回放：片段在原分轨里的起音秒。有它时渲染端按秒定位，不经过
+    #: 「秒→拍→秒」的 BPM 往返（XML 的 bpm 只有 6 位有效数字，长曲目会累积漂移）。
+    src_time: float | None = None
 
 
 @dataclass
@@ -82,6 +91,13 @@ class Track:
     transpose: int = 0
     effects: list[EffectSpec] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
+    # 音频轨：直接引用磁盘上的分轨，渲染时原样混音（不做转谱）
+    audio_path: Path | None = None
+    audio_offset: float = 0.0       # 片段起点（秒）
+    audio_gain_db: float = 0.0
+    audio_duration: float = 0.0     # 片段时长（秒），解析时读头部填入
+    # 合成音脚本：instrument="synth" 时由它提供音色；相对路径相对音轨文件
+    patch_path: Path | None = None
 
     # ---- 派生量 -------------------------------------------------------
     @property
@@ -123,6 +139,8 @@ class Project:
     tail_seconds: float = 2.0          # length="auto" 时在最后一个音符后留的余韵
     master_gain_db: float = 0.0
     normalize: bool = True
+    #: 母带效果链（``<master>`` 下的 ``<effect>``，在总线上、归一化之前生效）
+    master_effects: list[EffectSpec] = field(default_factory=list)
     tracks: list[Track] = field(default_factory=list)
     warnings: list[Issue] = field(default_factory=list)
 
@@ -146,6 +164,8 @@ class Project:
 
         longest = 0.0
         for track in self.tracks:
+            if track.audio_path is not None:
+                longest = max(longest, track.audio_offset + max(0.0, track.audio_duration))
             if track.loop and track.loop_count <= 0:
                 continue
             bpm = track.resolve_bpm(self.bpm)
@@ -196,6 +216,18 @@ def _parse_beats(text: str | None, what: str = "时值", default: float | None =
     return value
 
 
+def _parse_seconds(text: str | None, what: str = "时间", default: float = 0.0) -> float:
+    """解析秒数：``1.5`` / ``1500ms`` / ``1.5s``。"""
+    if text is None or str(text).strip() == "":
+        return default
+    raw = str(text).strip().lower()
+    if raw.endswith("ms"):
+        return _parse_number(raw[:-2], what) / 1000.0
+    if raw.endswith("s"):
+        return _parse_number(raw[:-1], what)
+    return _parse_number(raw, what)
+
+
 def _parse_gain_db(text: str | None, default: float = 0.0) -> float:
     """解析增益：``-3dB`` / ``+2dB`` / ``-6`` / ``0``。"""
     if text is None or str(text).strip() == "":
@@ -230,6 +262,33 @@ def _parse_velocity(text: str | None, default: float = 0.8) -> float:
 # ---------------------------------------------------------------------------
 # 载入
 # ---------------------------------------------------------------------------
+
+
+def _parse_effect_element(el, label: str, issues: list[Issue]) -> "EffectSpec | None":
+    """解析一个 ``<effect>`` 节点；参数越界只警告，类型未知直接跳过。"""
+    raw_type = el.get("type")
+    if not raw_type:
+        issues.append(Issue("warning", label, "缺少 type 属性，已忽略"))
+        return None
+    key = resolve_effect(raw_type)
+    if key is None:
+        issues.append(
+            Issue(
+                "warning",
+                label,
+                f"未知音效 {raw_type!r}，已忽略（可用：{effect_types_text()}）",
+            )
+        )
+        return None
+    raw = {k: v for k, v in el.attrib.items() if k != "type"}
+    try:
+        params, problems = normalize_effect_params(key, raw)
+    except EffectError as exc:
+        issues.append(Issue("warning", label, str(exc)))
+        return None
+    for problem in problems:
+        issues.append(Issue("warning", label, problem))
+    return EffectSpec(key, params)
 
 
 def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> Track:
@@ -269,6 +328,15 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
             except ValueError as exc:
                 issues.append(Issue("warning", where, f"属性 {attr} 无效，已用默认值: {exc}"))
 
+    if root.get("patch"):
+        from .patch import PatchError, load_patch
+
+        try:
+            track.patch_path = (path.parent / root.get("patch")).resolve()
+            load_patch(track.patch_path)  # 载入一次，脚本坏了在打开工程时就报错
+        except PatchError as exc:
+            issues.append(Issue("error", where, f"合成音脚本无效: {exc}"))
+
     if root.get("bpm"):
         try:
             track.bpm = _parse_number(root.get("bpm"), "bpm")
@@ -296,31 +364,33 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
     # ---- 音符 ----
     pending_time = 0.0
     for index, el in enumerate(root):
-        if el.tag == "effect":
-            label = f"{where} 第 {index + 1} 个 <effect>"
-            raw_type = el.get("type")
-            if not raw_type:
-                issues.append(Issue("warning", label, "缺少 type 属性，已忽略"))
+        if el.tag == "audio":
+            label = f"{where} 第 {index + 1} 个 <audio>"
+            if track.audio_path is not None:
+                issues.append(Issue("warning", label, "一个音轨只能有一个 <audio>，后者已忽略"))
                 continue
-            key = resolve_effect(raw_type)
-            if key is None:
-                issues.append(
-                    Issue(
-                        "warning",
-                        label,
-                        f"未知音效 {raw_type!r}，已忽略（可用：{effect_types_text()}）",
-                    )
-                )
+            file_attr = el.get("file")
+            if not file_attr:
+                issues.append(Issue("error", label, "缺少 file 属性"))
                 continue
-            raw = {k: v for k, v in el.attrib.items() if k != "type"}
+            audio_path = (path.parent / file_attr).resolve()
+            if not audio_path.is_file():
+                issues.append(Issue("error", label, f"音频文件不存在: {file_attr}"))
+                continue
             try:
-                params, problems = normalize_effect_params(key, raw)
-            except EffectError as exc:
-                issues.append(Issue("warning", label, str(exc)))
-                continue
-            for problem in problems:
-                issues.append(Issue("warning", label, problem))
-            track.effects.append(EffectSpec(key, params))
+                from .audioclip import AudioClipError, duration_seconds
+
+                track.audio_duration = duration_seconds(audio_path)
+                track.audio_offset = max(0.0, _parse_seconds(el.get("offset"), "offset"))
+                track.audio_gain_db = _parse_gain_db(el.get("gain"))
+                track.audio_path = audio_path
+            except (AudioClipError, ValueError) as exc:
+                issues.append(Issue("error", label, str(exc)))
+            continue
+        if el.tag == "effect":
+            spec = _parse_effect_element(el, f"{where} 第 {index + 1} 个 <effect>", issues)
+            if spec is not None:
+                track.effects.append(spec)
             continue
         if el.tag != "note":
             if el.tag not in ("comment", "meta"):
@@ -348,7 +418,15 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
         except (ValueError, PitchError) as exc:
             issues.append(Issue("error", label, str(exc)))
             continue
-        track.notes.append(Note(time=start, dur=dur, pitches=pitches, velocity=velocity))
+        bend = _parse_bend(el.get("bend"), label, issues)
+        try:
+            src_time = float(el.get("srcTime")) if el.get("srcTime") is not None else None
+        except ValueError:
+            src_time = None
+        track.notes.append(
+            Note(time=start, dur=dur, pitches=pitches, velocity=velocity, bend=bend,
+                 sample=(el.get("sample") or None), src_time=src_time)
+        )
         pending_time = start + dur
 
     if track.loop:
@@ -411,6 +489,14 @@ def load_project(path: str | Path) -> Project:
             project.master_gain_db = _parse_gain_db(root.get("masterGain"))
         if root.get("normalize") is not None:
             project.normalize = _parse_bool(root.get("normalize"), True)
+        master_el = root.find("master")
+        if master_el is not None:
+            for index, el in enumerate(master_el.findall("effect")):
+                spec = _parse_effect_element(
+                    el, f"{project_path.name} <master> 第 {index + 1} 个 <effect>", issues
+                )
+                if spec is not None:
+                    project.master_effects.append(spec)
         if root.get("length") is not None:
             project.length_spec = root.get("length").strip()
         if root.get("tail") is not None:
@@ -481,6 +567,36 @@ def load_project(path: str | Path) -> Project:
 # ---------------------------------------------------------------------------
 
 
+def _format_bend(curve: list[tuple[float, float]]) -> str:
+    """弯音曲线 → ``"0:0;0.5:-0.35;1:0"``。"""
+    return ";".join(f"{float(pos):g}:{float(semitone):g}" for pos, semitone in curve)
+
+
+def _parse_bend(text: str | None, label: str, issues: list[Issue]):
+    """``"0:0;0.5:-0.35;1:0"`` → ``[(0.0, 0.0), (0.5, -0.35), (1.0, 0.0)]``。"""
+    if not text:
+        return None
+    curve: list[tuple[float, float]] = []
+    for chunk in text.split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = chunk.split(":")
+        if len(parts) != 2:
+            issues.append(Issue("warning", label, f"弯音 {chunk!r} 格式不对，已忽略该点"))
+            continue
+        try:
+            position = float(parts[0])
+            semitone = float(parts[1])
+        except ValueError:
+            issues.append(Issue("warning", label, f"弯音 {chunk!r} 不是数字，已忽略该点"))
+            continue
+        curve.append((max(0.0, min(1.0, position)), semitone))
+    if len(curve) < 2:
+        return None
+    return sorted(curve)
+
+
 def save_track(track: Track, path: Path | None = None) -> Path:
     """把音轨模型写回 *track.xml*（格式会规范化）。"""
     target = Path(path or track.path or f"{track.name}.track.xml")
@@ -508,8 +624,32 @@ def save_track(track: Track, path: Path | None = None) -> Path:
         root.set("solo", "true")
     if track.transpose:
         root.set("transpose", str(track.transpose))
+    if track.patch_path is not None:
+        import os
+
+        try:
+            relative = os.path.relpath(track.patch_path, target.parent).replace("\\", "/")
+        except ValueError:
+            relative = str(track.patch_path)
+        root.set("patch", relative)
     for spec in track.effects:
         ET.SubElement(root, "effect", spec.to_attrs())
+    if track.audio_path is not None:
+        import os
+
+        try:
+            relative = os.path.relpath(track.audio_path, target.parent).replace("\\", "/")
+        except ValueError:
+            relative = str(track.audio_path)
+        ET.SubElement(
+            root,
+            "audio",
+            {
+                "file": relative,
+                "offset": f"{track.audio_offset:.12g}",
+                "gain": f"{track.audio_gain_db:+g}dB",
+            },
+        )
     for note in track.notes:
         pitches = ",".join(midi_to_name(p) for p in note.pitches)
         ET.SubElement(
@@ -521,6 +661,10 @@ def save_track(track: Track, path: Path | None = None) -> Path:
                 "dur": f"{note.dur:.12g}",
                 "pitch": pitches,
                 "vel": f"{note.velocity:g}",
+                **({"bend": _format_bend(note.bend)} if note.bend else {}),
+                **({"sample": note.sample} if note.sample else {}),
+                **({"srcTime": f"{note.src_time:.9f}"}
+                   if note.src_time is not None else {}),
             },
         )
     ET.indent(root, space="  ")
@@ -542,8 +686,17 @@ def describe(project: Project) -> str:
         f"母带: {project.master_gain_db:+g}dB | 归一化: {'开' if project.normalize else '关'}",
         f"音轨: {len(project.tracks)}",
     ]
+    if project.master_effects:
+        lines.append("  母带效果: " + " → ".join(spec.label() for spec in project.master_effects))
     for i, track in enumerate(project.tracks, 1):
         bpm = track.resolve_bpm(project.bpm)
+        if track.audio_path is not None:
+            lines.append(
+                f"  {i}. {track.name} [音频] {track.audio_duration:.2f}s | "
+                f"{track.gain_db:+g}dB | pan {track.pan:+.2f} | "
+                f"文件 {track.audio_path.name}"
+            )
+            continue
         flags = []
         if track.mute:
             flags.append("静音")

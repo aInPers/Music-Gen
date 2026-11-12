@@ -7,7 +7,6 @@ GUI 的「乐器注册表」对话框读写的是同一个文件。
 from __future__ import annotations
 
 import argparse
-import sys
 
 from .samples import fetch, registry
 
@@ -42,6 +41,11 @@ def cmd_list(args: argparse.Namespace) -> int:
         if kind == "builtin":
             detail = entry.get("description") or "内置乐器"
             state = "无需下载"
+        elif kind == "synth":
+            low = entry.get("midi_low", 21)
+            high = entry.get("midi_high", 108)
+            rng = entry.get("range_label") or f"MIDI {low}–{high}"
+            detail = f"{rng}  脚本 {entry.get('patch')}  [合成音，响度由脚本 gain 控制]"
         else:
             have, want = fetch.instrument_status(key, args.cache_dir)
             state = "就绪" if want and have >= want else ("部分" if have else "未下载")
@@ -65,11 +69,14 @@ def cmd_path(args: argparse.Namespace) -> int:
 
 def cmd_add(args: argparse.Namespace) -> int:
     entries = _entries()
+    synth = getattr(args, "synth", None)
     spec = {
         "key": args.key,
         "label": args.name,
         "aliases": _aliases(args.alias),
-        "kind": "sample",
+        "kind": "synth" if synth else "sample",
+        "patch": synth or "",
+        "description": "合成音脚本乐器" if synth else "",
         "gm": args.gm or "",
         "urls": _aliases(args.url) if args.url else [],
         "title": args.title or (
@@ -82,9 +89,17 @@ def cmd_add(args: argparse.Namespace) -> int:
     }
     entry = registry.add(entries, spec, force=args.force)
     _reload()
+    print(f"已注册乐器 {entry['key']}（{entry['label']}）")
+    if entry["kind"] == "synth":
+        print(f"  类型：合成音脚本 · {entry.get('patch')} · "
+              f"MIDI {entry['midi_low']}–{entry['midi_high']}（响度由脚本内 gain 控制）")
+        print(f"  别名：{'、'.join(entry['aliases']) or '—'}")
+        print(f"  注册表 {registry.path()}")
+        print(f"  试听：python -m musicgen synth render {entry.get('patch')} "
+              f"-o output/{entry['key']}.wav")
+        return 0
     have, want = fetch.instrument_status(entry["key"])
     origin = entry.get("gm") or f"{len(entry.get('urls') or [])} 个自定义地址"
-    print(f"已注册乐器 {entry['key']}（{entry['label']}）")
     print(f"  类型：采样 · {origin} · MIDI {entry['midi_low']}–{entry['midi_high']} "
           f"· 增益 {entry['gain']:g}")
     print(f"  别名：{'、'.join(entry['aliases']) or '—'}")
@@ -127,6 +142,8 @@ def register_instrument_commands(sub) -> None:
     p_add = inst.add_parser("add", help="注册一件新乐器（FluidR3 GM 包名或自定义地址）")
     p_add.add_argument("key", help="注册键，小写字母/数字/下划线，如 flute")
     p_add.add_argument("--name", required=True, help="界面显示的中文名，如 长笛")
+    p_add.add_argument("--synth", default=None,
+                       help="改成注册一件合成音色：给内置音色名或 .synth.json 脚本路径")
     p_add.add_argument("--gm", default=None,
                        help="FluidR3 GM 音色包名，如 flute / acoustic_guitar_nylon；"
                             "会自动生成 4 个下载镜像")

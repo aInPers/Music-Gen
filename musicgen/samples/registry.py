@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-VERSION = 1
+VERSION = 3
 FLUID_LICENSE = "FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）"
 FLUID_HOME = "https://github.com/gleitz/midi-js-soundfonts"
 
@@ -91,6 +91,46 @@ DEFAULT_ENTRIES: list[dict[str, Any]] = [
         "range_label": "E2–E6（民谣吉他常用音域）", "gain": 7.0,
     },
     {
+        "key": "bass", "label": "贝斯",
+        "aliases": ["bass guitar", "electric bass", "电贝斯", "低音吉他", "贝司"],
+        "kind": "sample", "gm": "electric_bass_finger",
+        "title": "FluidR3 GM — Electric Bass (finger)",
+        "midi_low": 28, "midi_high": 67,
+        "range_label": "E1–G4（电贝斯常用音域）", "gain": 10.0,
+    },
+    {
+        "key": "vocal", "label": "人声",
+        "aliases": ["voice", "voice oohs", "vox", "人声轨", "吟唱"],
+        "kind": "sample", "gm": "voice_oohs",
+        "title": "FluidR3 GM — Voice Oohs",
+        "midi_low": 48, "midi_high": 84,
+        "range_label": "C3–C6（人声常用音域）", "gain": 8.0,
+    },
+    {
+        "key": "synth_pad", "label": "合成垫", "kind": "synth", "patch": "warm_pad",
+        "aliases": ["pad", "铺垫", "合成垫音", "暖垫"], "gain": 8.0,
+        "title": "内置合成音脚本 — warm_pad",
+        "midi_low": 36, "midi_high": 96, "range_label": "C2–C7（合成垫）",
+    },
+    {
+        "key": "synth_lead", "label": "合成主音", "kind": "synth", "patch": "analog_lead",
+        "aliases": ["lead", "主音合成", "合成 lead"], "gain": 8.0,
+        "title": "内置合成音脚本 — analog_lead",
+        "midi_low": 48, "midi_high": 100, "range_label": "C3–E7（合成主音）",
+    },
+    {
+        "key": "synth_bass", "label": "合成贝斯", "kind": "synth", "patch": "deep_bass",
+        "aliases": ["sub bass", "合成低音", "sub"], "gain": 8.0,
+        "title": "内置合成音脚本 — deep_bass",
+        "midi_low": 24, "midi_high": 60, "range_label": "C1–C4（合成贝斯，含 sub）",
+    },
+    {
+        "key": "synth_pluck", "label": "合成拨弦", "kind": "synth", "patch": "pluck_string",
+        "aliases": ["pluck", "拨奏合成", "琶音音色"], "gain": 8.0,
+        "title": "内置合成音脚本 — pluck_string",
+        "midi_low": 40, "midi_high": 96, "range_label": "E2–C7（合成拨弦）",
+    },
+    {
         "key": "drums", "label": "架子鼓",
         "aliases": ["架子鼓", "鼓组", "鼓", "打击乐", "drum", "drumkit",
                     "kit", "percussion"],
@@ -117,14 +157,31 @@ def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
         raise RegistryError(f"注册键不合法：{key!r}（只允许小写字母/数字/下划线/连字符）")
     label = str(raw.get("label") or "").strip() or key
     kind = str(raw.get("kind") or "sample").strip().lower()
-    if kind not in ("sample", "builtin"):
-        raise RegistryError(f"未知乐器类型：{kind}（可选 sample / builtin）")
+    if kind not in ("sample", "builtin", "synth"):
+        raise RegistryError(f"未知乐器类型：{kind}（可选 sample / builtin / synth）")
     aliases = [str(a).strip() for a in (raw.get("aliases") or []) if str(a).strip()]
     entry: dict[str, Any] = {
         "key": key, "label": label, "kind": kind, "aliases": aliases,
     }
     if kind == "builtin":
         entry["description"] = str(raw.get("description") or "内置乐器")
+        return entry
+
+    if kind == "synth":
+        patch = str(raw.get("patch") or "").strip()
+        if not patch:
+            raise RegistryError("合成音色需要 patch（内置音色名，或 .synth.json 脚本路径）")
+        low = int(raw.get("midi_low", 21))
+        high = int(raw.get("midi_high", 108))
+        if not 0 <= low <= high <= 127:
+            raise RegistryError(f"音域不合法：{low}–{high}（需在 0–127 且低音 ≤ 高音）")
+        entry.update({
+            "patch": patch,
+            "title": str(raw.get("title") or f"合成音脚本 — {patch}"),
+            "midi_low": low, "midi_high": high,
+            "range_label": str(raw.get("range_label") or ""),
+            "gain": float(raw.get("gain") or 0) or 8.0,
+        })
         return entry
 
     gm = str(raw.get("gm") or "").strip()
@@ -171,6 +228,17 @@ def load() -> list[dict[str, Any]]:
         entries = [_normalize(item) for item in raw]
         if len({e["key"] for e in entries}) != len(entries):
             raise ValueError("注册键重复")
+        # 旧版注册表升级：把新增的内置乐器（如 bass / vocal）补进去，
+        # 用户已有的条目与参数保持不变。
+        if int(data.get("version") or 1) < VERSION:
+            existing = {e["key"] for e in entries}
+            added = [_normalize(e) for e in defaults() if e["key"] not in existing]
+            if added:
+                entries.extend(added)
+                try:
+                    save(entries)
+                except OSError:
+                    pass  # 只读环境：本次用合并结果，下次再试
         return entries
     except (OSError, ValueError, KeyError, json.JSONDecodeError, RegistryError):
         return defaults()

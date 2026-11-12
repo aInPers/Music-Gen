@@ -645,3 +645,182 @@ class Bit2Effect(BitcrushEffect):
     DESCRIPTION = "2 位量化（4 级电平）+ 4kHz 降采样，几乎只剩方波的极端破坏。"
     BITS = 2
     PARAMS = _chip_params(4000, 0.45, 0.0)
+
+# ---------------------------------------------------------------------------
+# 逆向工程常用效果：均衡 / 失真 / 压缩 / 合唱
+# ---------------------------------------------------------------------------
+
+
+def _spectral_gain(audio: np.ndarray, sample_rate: int, curve) -> np.ndarray:
+    """按频率响应曲线做零相位滤波（整段 FFT，补零避免循环卷积）。"""
+    frames = audio.shape[1]
+    size = 1 << max(1, (2 * frames - 1).bit_length())
+    freqs = np.fft.rfftfreq(size, 1.0 / sample_rate)
+    gain = curve(freqs).astype(np.float64)
+    out = np.empty_like(audio)
+    for channel in range(2):
+        spec = np.fft.rfft(audio[channel], size)
+        out[channel] = np.fft.irfft(spec * gain, size)[:frames]
+    return out.astype(np.float32, copy=False)
+
+
+def _shelf(freqs: np.ndarray, corner: float, width_octaves: float) -> np.ndarray:
+    """低搁架权重：``corner`` 以下约 1，以上平滑趋 0。"""
+    ratio = np.log2(np.maximum(freqs, 1.0) / corner)
+    return 1.0 / (1.0 + np.exp(ratio / max(0.05, width_octaves) * 3.0))
+
+
+@register_effect
+class EqEffect(Effect):
+    KEY = "eq"
+    LABEL = "均衡"
+    ALIASES = ("均衡器", "三段均衡", "equalizer")
+    DESCRIPTION = "三段均衡：低频搁架 + 中频钟形 + 高频搁架，用来还原原曲的频谱倾斜。"
+    PARAMS = (
+        Param("low", "低频", 0.0, -24.0, 24.0, 0.5, "dB"),
+        Param("mid", "中频", 0.0, -24.0, 24.0, 0.5, "dB"),
+        Param("high", "高频", 0.0, -24.0, 24.0, 0.5, "dB"),
+        Param("mid_freq", "中频中心", 900.0, 200.0, 6000.0, 10.0, "Hz", "int"),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        if audio.shape[1] == 0:
+            return audio
+        low_db = float(self["low"])
+        mid_db = float(self["mid"])
+        high_db = float(self["high"])
+        if abs(low_db) + abs(mid_db) + abs(high_db) < 1e-3:
+            return audio.copy()
+        centre = max(80.0, float(self["mid_freq"]))
+        def curve(freqs: np.ndarray) -> np.ndarray:
+            low_weight = 1.0 / (1.0 + np.exp(np.log2(np.maximum(freqs, 1.0) / 220.0) / 1.6 * 3.0))
+            high_weight = 1.0 / (1.0 + np.exp(-np.log2(np.maximum(freqs, 1.0) / 3800.0) / 1.6 * 3.0))
+            bell = np.exp(-0.5 * (np.log2(np.maximum(freqs, 1.0) / centre) / 0.85) ** 2)
+            total_db = low_db * low_weight + mid_db * bell + high_db * high_weight
+            return 10.0 ** (total_db / 20.0)
+
+        return _spectral_gain(audio, sample_rate, curve)
+
+
+@register_effect
+class DriveEffect(Effect):
+    KEY = "drive"
+    LABEL = "失真"
+    ALIASES = ("过载", "饱和", "overdrive", "distortion", "saturation")
+    DESCRIPTION = "软削波饱和 + 亮度低通，给合成器与贝斯补上原曲的谐波密度。"
+    PARAMS = (
+        Param("amount", "驱动量", 0.35, 0.0, 1.0, 0.01),
+        Param("tone", "亮度", 0.55, 0.0, 1.0, 0.01),
+        Param("output", "输出", 0.0, -24.0, 6.0, 0.5, "dB"),
+        Param("mix", "干湿", 1.0, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        amount = float(self["amount"])
+        if amount <= 1e-3:
+            return audio.copy()
+        pre = 1.0 + amount * 14.0
+        wet = np.tanh(audio * pre) / math.tanh(pre)
+        # 亮度：一阶低通，tone 越小越闷
+        keep = 0.05 + 0.92 * max(0.0, min(1.0, float(self["tone"])))
+        if keep < 0.999:
+            filtered = wet.copy()
+            filtered[:, 1:] = wet[:, 1:] * keep + wet[:, :-1] * (1.0 - keep)
+            wet = filtered
+        wet = wet * db_to_gain(float(self["output"]))
+        return _blend(audio, wet, float(self["mix"]))
+
+
+def db_to_gain(db: float) -> float:
+    return 10.0 ** (float(db) / 20.0)
+
+
+@register_effect
+class CompressorEffect(Effect):
+    KEY = "compressor"
+    LABEL = "压缩"
+    ALIASES = ("压缩器", "comp", "compression")
+    DESCRIPTION = "峰值检测 + 释放平滑的向下压缩，用来还原原曲被压扁的动态。"
+    PARAMS = (
+        Param("threshold", "阈值", -18.0, -48.0, 0.0, 0.5, "dB"),
+        Param("ratio", "压缩比", 3.0, 1.0, 20.0, 0.1, "×"),
+        Param("release", "释放", 180.0, 20.0, 1000.0, 10.0, "ms", "int"),
+        Param("makeup", "补偿增益", 0.0, -12.0, 18.0, 0.5, "dB"),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        ratio = max(1.0, float(self["ratio"]))
+        threshold = float(self["threshold"])
+        if ratio <= 1.0001:
+            return audio.copy()
+        level = np.max(np.abs(audio), axis=0)
+        release = max(0.02, float(self["release"]) / 1000.0)
+        smooth = _release_smooth(level, release, sample_rate)
+        # 起音不做平滑：峰值立即进入压缩，避免瞬态漏过去
+        envelope = np.maximum(level, smooth)
+        envelope_db = 20.0 * np.log10(envelope + 1e-9)
+        over = np.maximum(0.0, envelope_db - threshold)
+        gain_db = -over * (1.0 - 1.0 / ratio) + float(self["makeup"])
+        gain = np.power(10.0, gain_db / 20.0).astype(np.float32)
+        return (audio * gain[None, :]).astype(np.float32, copy=False)
+
+
+def _release_smooth(level: np.ndarray, release: float, sample_rate: int) -> np.ndarray:
+    """单极点释放平滑：``y[n] = (1-a)·x[n] + a·y[n-1]``。"""
+    alpha = math.exp(-1.0 / max(1.0, release * sample_rate))
+    try:
+        from scipy.signal import lfilter
+
+        return lfilter([1.0 - alpha], [1.0, -alpha], level).astype(np.float32)
+    except ImportError:  # 没有 scipy 时用短 FIR 近似，行为略钝但不会失败
+        length = max(2, min(4096, int(release * sample_rate / 3.0)))
+        kernel = (alpha ** np.arange(length)).astype(np.float32)
+        kernel /= kernel.sum()
+        return np.convolve(level, kernel, mode="full")[: level.size].astype(np.float32)
+
+
+@register_effect
+class ChorusEffect(Effect):
+    KEY = "chorus"
+    LABEL = "合唱"
+    ALIASES = ("镶边", "chorus", "flanger")
+    DESCRIPTION = "两路调制延迟，给单薄的合成音色加厚，也用于还原原曲的宽度与游移。"
+    PARAMS = (
+        Param("rate", "速率", 0.6, 0.05, 6.0, 0.05, "Hz"),
+        Param("depth", "深度", 6.0, 0.5, 20.0, 0.5, "ms"),
+        Param("mix", "干湿", 0.35, 0.0, 1.0, 0.01),
+        Param("voices", "声部", 2, 1, 3, 1, "", "int"),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        rate = max(0.01, float(self["rate"]))
+        depth = max(0.0, float(self["depth"])) / 1000.0 * sample_rate
+        voices = int(self["voices"])
+        t = np.arange(frames, dtype=np.float64) / sample_rate
+        wet = np.zeros_like(audio, dtype=np.float64)
+        index = np.arange(frames, dtype=np.float64)
+        for voice in range(voices):
+            phase = 2.0 * math.pi * (voice / max(1, voices)) + (0.5 * math.pi if voice % 2 else 0.0)
+            for channel in range(2):
+                # 左右反相调制，形成宽度
+                sign = 1.0 if channel == 0 else -1.0
+                lfo = np.sin(2.0 * math.pi * rate * t + sign * phase)
+                delay = np.maximum(0.0, depth * (0.5 + 0.5 * lfo))
+                position = index - delay
+                wet[channel] += np.interp(position, index, audio[channel].astype(np.float64))
+        wet /= max(1, voices)
+        wet = wet.astype(np.float32)
+        return _blend(audio, wet, float(self["mix"]))

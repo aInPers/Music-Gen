@@ -13,18 +13,24 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 from . import __version__
+from .analysis import AnalysisError
+from .cli_analyze import register_analyze_command
 from .cli_effects import register_effect_commands
 from .cli_instruments import RegistryError, register_instrument_commands
+from .synth_cli import register_synth_commands
 from .cli_tracks import TrackEditError, register_track_commands
 from .core.project import ProjectError, create_project, describe, load_project
 from .core.render import render_project
 from .core.wavio import write_wav
+from .progress import Progress
 from .samples import fetch
 
 
@@ -66,41 +72,149 @@ def _normalize_argv(argv: list[str]) -> list[str]:
     return result
 
 
-class _Progress:
-    """终端进度条，非 TTY 环境退化为按行输出。"""
-
-    def __init__(self, enabled: bool = True) -> None:
-        self.enabled = enabled
-        self.is_tty = sys.stderr.isatty()
-        self._last = -1.0
-        self._start = time.time()
-
-    def __call__(self, fraction: float, message: str) -> None:
-        if not self.enabled:
-            return
-        if self.is_tty:
-            if fraction - self._last < 0.02 and fraction < 1.0:
-                return
-            self._last = fraction
-            width = 28
-            filled = int(width * fraction)
-            bar = "█" * filled + "░" * (width - filled)
-            sys.stderr.write(f"\r  [{bar}] {fraction * 100:5.1f}%  {message[:28]:<28}")
-            sys.stderr.flush()
-        elif fraction >= 1.0 or fraction - self._last >= 0.25:
-            self._last = fraction
-            sys.stderr.write(f"  {fraction * 100:5.1f}%  {message}\n")
-            sys.stderr.flush()
-
-    def done(self) -> None:
-        if self.enabled and self.is_tty:
-            sys.stderr.write("\n")
-            sys.stderr.flush()
+class _Progress(Progress):
+    """兼容旧调用：渲染进度条现在与 ``analyze`` 共用 :class:`musicgen.progress.Progress`。"""
 
 
 # ---------------------------------------------------------------------------
 # 子命令
 # ---------------------------------------------------------------------------
+
+
+def _parse_track_selection(project, text: str | None) -> list[int] | None:
+    """``--tracks "1,3,Piano"`` → 0 起的轨道下标；没给就返回 None。"""
+    if not text:
+        return None
+    wanted: list[int] = []
+    missing: list[str] = []
+    for token in text.replace("，", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token.lstrip("+").isdigit():
+            index = int(token) - 1
+            if 0 <= index < len(project.tracks):
+                wanted.append(index)
+            else:
+                missing.append(token)
+            continue
+        matched = [index for index, track in enumerate(project.tracks)
+                   if track.name == token]
+        if matched:
+            wanted.extend(matched)
+        else:
+            missing.append(token)
+    if missing:
+        names = "、".join(f"{i + 1}.{track.name}" for i, track in enumerate(project.tracks))
+        print(f"找不到这些轨道：{'、'.join(missing)}", file=sys.stderr)
+        print(f"  可选：{names}", file=sys.stderr)
+        return None
+    return sorted(set(wanted))
+
+
+def cmd_import_midi(args: argparse.Namespace) -> int:
+    """MIDI → musicproj，默认把用到的采样一起拷进工程。"""
+    from .midi_import import describe_piece, parse_midi, write_project
+
+    source = Path(args.midi)
+    if not source.is_file():
+        print(f"找不到 MIDI 文件：{source}", file=sys.stderr)
+        return 2
+    try:
+        piece = parse_midi(source)
+    except Exception as exc:  # noqa: BLE001 - MIDI 解析失败给一条干净的错误
+        print(f"MIDI 解析失败：{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+    if args.bpm:
+        piece.bpm = float(args.bpm)
+    if not piece.parts:
+        print("这个 MIDI 里没有音符", file=sys.stderr)
+        return 2
+
+    output = Path(args.output)
+    project_path = write_project(piece, output, name=args.name, bundle=not args.no_bundle)
+    print(f"已导入 {source.name} → {project_path}")
+    print(describe_piece(piece))
+    if not args.no_bundle:
+        local = output / "instruments"
+        count = len([p for p in local.glob("*") if p.is_dir()]) if local.is_dir() else 0
+        print(f"  工程自带音源：instruments/（{count} 件乐器）"
+              if count else "  工程自带音源：无（全是合成音色）")
+    print(f"下一步：python -m musicgen validate \"{project_path}\" && "
+          f"python -m musicgen render \"{project_path}\"")
+    return 0
+
+
+def cmd_bundle(args: argparse.Namespace) -> int:
+    """把工程用到的采样拷进工程目录，让工程可以脱离全局缓存渲染。"""
+    from .midi_import import bundle_instruments
+
+    try:
+        project = load_project(args.project)
+    except ProjectError as exc:
+        print("工程文件有问题，无法读取：", file=sys.stderr)
+        for issue in exc.issues:
+            print(f"  {issue}", file=sys.stderr)
+        return 2
+    copied = bundle_instruments(project, project.path.parent)
+    if not copied:
+        print("没有需要打包的采样音源（工程只用了合成音色/音频轨）")
+        return 0
+    print(f"已打包 {len(copied)} 件乐器的采样到 {project.path.parent / 'instruments'}")
+    print("  " + "、".join(copied))
+    print("现在把这个工程目录整个拷走也能直接渲染：不依赖全局 samples_cache。")
+    return 0
+
+
+MUSCRIPTOR_HINT = """MuScriptor 的模型权重是 gated 的，需要先在浏览器里接受许可：
+
+  1. 打开 https://huggingface.co/MuScriptor/muscriptor-small（或 -medium / -large）
+     登录后点 Agree，权限会立刻开通；
+  2. 在 https://huggingface.co/settings/tokens 建一个 read 令牌；
+  3. 设置环境变量后重跑：set HF_TOKEN=hf_xxx
+
+国内网络可加 --endpoint https://hf-mirror.com（默认已设置）。"""
+
+
+def cmd_transcribe(args: argparse.Namespace) -> int:
+    """音频 → MIDI（MuScriptor），可选接着导入成工程。"""
+    audio = Path(args.audio)
+    if not audio.is_file():
+        print(f"找不到音频文件：{audio}", file=sys.stderr)
+        return 2
+    output = Path(args.output) if args.output else audio.with_name(audio.name + ".mid")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    env.setdefault("HF_ENDPOINT", args.endpoint or "https://hf-mirror.com")
+    command = [sys.executable, "-m", "muscriptor", "transcribe", str(audio),
+               "-o", str(output), "--model", args.model]
+    if args.instruments:
+        command.extend(["--instruments", args.instruments])
+    print("调用 MuScriptor：" + " ".join(command))
+    try:
+        code = subprocess.call(command, env=env)
+    except FileNotFoundError:
+        print("没装 muscriptor：pip install muscriptor", file=sys.stderr)
+        return 2
+    if code != 0:
+        print("\nMuScriptor 没能完成转谱。", file=sys.stderr)
+        print(MUSCRIPTOR_HINT, file=sys.stderr)
+        return code
+    if not output.is_file():
+        print(f"MuScriptor 报告成功，但没有写出 {output}", file=sys.stderr)
+        return 3
+    print(f"MIDI 已写出：{output}")
+
+    if args.import_to:
+        from .midi_import import describe_piece, parse_midi, write_project
+
+        piece = parse_midi(output)
+        project_path = write_project(piece, Path(args.import_to), bundle=not args.no_bundle)
+        print(f"工程已重建：{project_path}")
+        print(describe_piece(piece))
+        print(f"下一步：python -m musicgen render \"{project_path}\"")
+    return 0
 
 
 def cmd_render(args: argparse.Namespace) -> int:
@@ -119,9 +233,14 @@ def cmd_render(args: argparse.Namespace) -> int:
     for warning in project.warnings:
         print(f"  {warning}", file=sys.stderr)
 
+    only = _parse_track_selection(project, args.tracks)
+    if only is None and args.tracks:
+        return 2
+
     print(f"渲染 {project.name} → {output}")
+    picked = f"（指定 {len(only)}/{len(project.tracks)} 条）" if only is not None else ""
     print(
-        f"  {len(project.tracks)} 条音轨 | {project.bpm:g}BPM | "
+        f"  {len(project.tracks)} 条音轨{picked} | {project.bpm:g}BPM | "
         f"{project.sample_rate}Hz | 时长 {_fmt_seconds(project.compute_length_seconds())}"
     )
 
@@ -133,6 +252,7 @@ def cmd_render(args: argparse.Namespace) -> int:
             cache_root=args.cache_dir,
             progress=progress,
             normalize=False if args.no_normalize else None,
+            only=only,
         )
     except FileNotFoundError as exc:
         progress.done()
@@ -160,7 +280,12 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     for stat in result.track_stats:
         effects = f" · 音效 {stat.effects}" if stat.effects else ""
-        print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} 峰值 {stat.peak:.3f}{effects}")
+        rms = f" RMS {stat.rms:.3f}" if stat.rms else ""
+        if stat.kind == "audio":
+            print(f"    · {stat.name} [音频] 峰值 {stat.peak:.3f}{rms}{effects}")
+        else:
+            print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} "
+                  f"峰值 {stat.peak:.3f}{rms}{effects}")
     for warning in result.warnings:
         print(f"  ! {warning}", file=sys.stderr)
     return 0
@@ -329,6 +454,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_render.add_argument("--float32", action="store_true", help="输出 32bit 浮点 WAV")
     p_render.add_argument("--no-normalize", action="store_true", help="不做峰值归一化")
     p_render.add_argument("--no-dither", action="store_true", help="不做 TPDF 抖动")
+    p_render.add_argument("--tracks", default=None,
+                          help="只渲染这些轨：1 起的序号或轨名，逗号分隔（如 1,3,Piano）")
     p_render.add_argument("--quiet", action="store_true", help="不显示进度条")
     add_cache(p_render)
     p_render.set_defaults(func=cmd_render)
@@ -336,6 +463,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_validate = sub.add_parser("validate", help="校验工程文件")
     p_validate.add_argument("project")
     p_validate.set_defaults(func=cmd_validate)
+
+    p_trans = sub.add_parser("transcribe", help="音频转 MIDI（MuScriptor），可顺手重建工程")
+    p_trans.add_argument("audio", help="输入音频（wav/mp3/flac/…）")
+    p_trans.add_argument("-o", "--output", default=None, help="输出 MIDI 路径")
+    p_trans.add_argument("--model", default="small", choices=("small", "medium", "large"),
+                         help="模型规格（默认 small，CPU 可跑）")
+    p_trans.add_argument("--instruments", default=None,
+                         help="限定乐器组（逗号分隔，见 muscriptor list-instruments）")
+    p_trans.add_argument("--endpoint", default=None, help="HuggingFace 镜像地址")
+    p_trans.add_argument("--import-to", default=None, help="转完后直接导入成工程的目录")
+    p_trans.add_argument("--no-bundle", action="store_true",
+                         help="导入时不把采样拷进工程")
+    p_trans.set_defaults(func=cmd_transcribe)
+
+    p_midi = sub.add_parser("import-midi", help="把 MIDI 转成工程（可自带音源）")
+    p_midi.add_argument("midi", help="*.mid / *.midi 文件")
+    p_midi.add_argument("-o", "--output", required=True, help="工程输出目录")
+    p_midi.add_argument("--name", default=None, help="工程名（默认用目录名）")
+    p_midi.add_argument("--bpm", type=float, default=None, help="覆盖 MIDI 里的速度")
+    p_midi.add_argument("--no-bundle", action="store_true",
+                        help="不把采样拷进工程（仍依赖全局 samples_cache）")
+    p_midi.set_defaults(func=cmd_import_midi)
+
+    p_bundle = sub.add_parser("bundle", help="把工程用到的采样打包进工程目录")
+    p_bundle.add_argument("project")
+    p_bundle.set_defaults(func=cmd_bundle)
 
     p_info = sub.add_parser("info", help="查看工程概要")
     p_info.add_argument("project")
@@ -376,6 +529,8 @@ def build_parser() -> argparse.ArgumentParser:
     register_track_commands(sub)
     register_instrument_commands(sub)
     register_effect_commands(sub)
+    register_synth_commands(sub)
+    register_analyze_command(sub)
     return parser
 
 
@@ -401,6 +556,9 @@ def main(argv: list[str] | None = None) -> int:
         for issue in exc.issues[:8]:
             print(f"  {issue}", file=sys.stderr)
         return 2
+    except AnalysisError as exc:
+        print(f"分析失败：{exc}", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print("\n已取消", file=sys.stderr)
         return 130

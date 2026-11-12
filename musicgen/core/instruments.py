@@ -7,6 +7,7 @@ from typing import Callable
 
 from .drums import DrumInstrument, pad_label
 from .notes import midi_to_name
+from .patch import PatchError, PatchInstrument, load_patch
 from .sampler import SampleInstrument, SynthInstrument
 from ..samples import fetch
 
@@ -19,11 +20,13 @@ class InstrumentRegistry:
         cache_root: Path | None = None,
         sample_rate: int = 44100,
         warn: Callable[[str], None] | None = None,
+        base_dir: Path | None = None,
     ) -> None:
         self.cache_root = cache_root
         self.sample_rate = sample_rate
         self._warn = warn or (lambda msg: None)
-        self._cache: dict[str, SampleInstrument | SynthInstrument] = {}
+        self.base_dir = base_dir
+        self._cache: dict[str, SampleInstrument | SynthInstrument | PatchInstrument] = {}
         self._warned: set[str] = set()
 
     @property
@@ -36,10 +39,47 @@ class InstrumentRegistry:
             self._cache["__synth__"] = SynthInstrument("synth", sample_rate=self.sample_rate)
         return self._cache["__synth__"]
 
+    def _synth(self, key: str, ref: str) -> PatchInstrument:
+        cache_key = f"@synth:{key}:{ref}"
+        if cache_key not in self._cache:
+            try:
+                patch = load_patch(ref, base_dir=self.base_dir)
+            except PatchError as exc:
+                self._warn(f"合成音脚本 {ref!r} 载入失败，改用兜底合成器：{exc}")
+                return self.synth()
+            self._cache[cache_key] = PatchInstrument(
+                patch, name=key, sample_rate=self.sample_rate
+            )
+        return self._cache[cache_key]  # type: ignore[return-value]
+
+    def patch_instrument(self, ref: Path | str, name: str = "") -> PatchInstrument:
+        """载入一个脚本文件（项目内 ``<track patch="…">`` 用），失败时退回兜底合成器。"""
+        key = f"@file:{Path(ref)}"
+        if key not in self._cache:
+            try:
+                patch = load_patch(ref, base_dir=self.base_dir)
+            except PatchError as exc:
+                self._warn(f"合成音脚本 {ref} 载入失败，改用兜底合成器：{exc}")
+                return self.synth()
+            self._cache[key] = PatchInstrument(
+                patch, name=name or patch.name, sample_rate=self.sample_rate
+            )
+        return self._cache[key]  # type: ignore[return-value]
+
+    def get_for_track(self, track) -> object:
+        """按音轨取乐器：有 ``patch_path`` 时用脚本，否则走注册表。"""
+        patch_path = getattr(track, "patch_path", None)
+        if patch_path is not None:
+            return self.patch_instrument(patch_path, getattr(track, "instrument", ""))
+        return self.get(track.instrument)
+
     def get(self, name: str):
         key = fetch.resolve(name)
         if key in self._cache:
             return self._cache[key]
+
+        if key in fetch.SYNTHS:
+            return self._synth(key, fetch.patch_spec(key))
 
         if key in fetch.BUILTIN:
             instrument = DrumInstrument(key, sample_rate=self.sample_rate)
@@ -47,12 +87,15 @@ class InstrumentRegistry:
             return instrument
 
         instrument: SampleInstrument | SynthInstrument
-        if key in fetch.SOURCES and fetch.available_notes(key, self.cache_root):
+        # 只要有采样就用采样：不限于内置乐器。从原曲分轨切出来的「原曲采样」
+        # 也走这条路（键名以 src_ 开头，不在 SOURCES 里），音色才对得上。
+        if fetch.available_notes(key, self.cache_root):
             instrument = SampleInstrument(
                 key,
                 cache_root=self.cache_root,
                 sample_rate=self.sample_rate,
                 warn=self._warn,
+                raw=key not in fetch.SOURCES,
             )
         else:
             instrument = SynthInstrument(key, sample_rate=self.sample_rate)
