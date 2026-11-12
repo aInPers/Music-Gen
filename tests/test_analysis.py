@@ -71,6 +71,27 @@ def _hat(duration: float = 0.12) -> np.ndarray:
     return (0.4 * bright * np.exp(-t * 55.0)).astype(np.float32)
 
 
+class AudioResampleTests(unittest.TestCase):
+    """解码与重采样：长音频的长度差 1 个样本不能抛广播错误。"""
+
+    def test_long_resample_does_not_raise(self):
+        """48k → 44.1k：resample_poly 的实际长度比 round 多 1，不能直接赋值。"""
+        from musicgen.analysis.audio import resample
+
+        rng = np.random.default_rng(7)
+        for frames in (1245400, 960000):
+            samples = rng.standard_normal((2, frames)).astype(np.float32)
+            out = resample(samples, 48000, 44100)
+            self.assertEqual(out.shape[0], 2)
+            self.assertLessEqual(abs(out.shape[1] - frames * 44100 / 48000), 2)
+
+    def test_same_rate_is_passthrough(self):
+        from musicgen.analysis.audio import resample
+
+        samples = np.zeros((2, 1000), dtype=np.float32)
+        self.assertEqual(resample(samples, 44100, 44100).shape, (2, 1000))
+
+
 class SpectrumTests(unittest.TestCase):
     def test_stft_shape_and_centroid(self):
         tone = _tone(69, 1.0)

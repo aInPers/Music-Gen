@@ -86,12 +86,17 @@ def resample(samples: np.ndarray, source_rate: int, target_rate: int) -> np.ndar
     divisor = gcd(int(source_rate), int(target_rate))
     up = int(target_rate) // divisor
     down = int(source_rate) // divisor
-    out = np.empty(
-        (samples.shape[0], max(1, int(round(samples.shape[1] * up / down)))),
-        dtype=np.float32,
-    )
-    for channel in range(samples.shape[0]):
-        out[channel] = resample_poly(samples[channel], up, down).astype(np.float32)
+    # 不要按 round(n*up/down) 预分配：resample_poly 的实际输出是
+    # ceil/floor 路径，长音频上常与 round 差 1 个样本，直接赋值会抛
+    # 「could not broadcast input array from shape (N,) into shape (N-1,)」。
+    pieces = [
+        resample_poly(samples[channel], up, down).astype(np.float32)
+        for channel in range(samples.shape[0])
+    ]
+    length = max(piece.size for piece in pieces)
+    out = np.zeros((samples.shape[0], length), dtype=np.float32)
+    for channel, piece in enumerate(pieces):
+        out[channel, : piece.size] = piece
     return out
 
 

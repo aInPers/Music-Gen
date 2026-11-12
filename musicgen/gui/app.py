@@ -524,9 +524,12 @@ class MusicGenApp(tk.Tk):
         )
         self._stop_playback(reset=True)
         self._set_busy(True, "正在分析音频（首次运行需下载模型）…")
+        # 默认走精确回放：音符按原始起音写，量化参数不生效，日志别再写「量化 1/16」
+        mode_text = (f"量化 {info['quantize']}" if info.get("no_exact_replay")
+                     else "精确回放")
         self.log(
             f"开始分析 {info['source'].name} → {info['output']}"
-            f"（模型 {info['model']} · 量化 {info['quantize']}）",
+            f"（模型 {info['model']} · {mode_text}）",
             "ok",
         )
 
@@ -547,13 +550,22 @@ class MusicGenApp(tk.Tk):
         self.status.set_progress(1.0)
         self.status.set_message(f"分析完成 · {len(result.tracks)} 条音轨")
         self.after(1500, lambda: self.status.set_progress(None))
+        audio_count = sum(1 for track in result.tracks if track.audio_path is not None)
+        detail = (f"{result.note_count} 音符"
+                  + (f" + {audio_count} 条音频轨" if audio_count else ""))
         self.log(
             f"分析完成：{result.project_path}（{len(result.tracks)} 轨 / "
-            f"{result.note_count} 音符 / {result.bpm:.1f}BPM / {result.key or '调性未知'} / "
+            f"{detail} / {result.bpm:.1f}BPM / {result.key or '调性未知'} / "
             f"耗时 {result.elapsed:.1f}s）",
             "ok",
         )
         for draft in result.tracks:
+            if draft.audio_path is not None:
+                # 音频轨没有音符，照音符轨的格式打会显示成「音符 0」，对不上实际
+                self.log(
+                    f"  · {draft.name} [音频] {draft.stem} 文件 {draft.audio_path.name}"
+                )
+                continue
             self.log(
                 f"  · {draft.name} [{draft.instrument}] 音符 {len(draft.notes)} "
                 f"{draft.gain_db:+.1f}dB pan {draft.pan:+.2f} 置信 {draft.confidence:.2f}"
