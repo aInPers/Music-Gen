@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 1 拍的 pattern 重复 32 次，声像用曲线左右摆 -->
+<track name="Hat" instrument="drums" group="Drums" gain="-4dB" period="1" repeat="32">
+  <send bus="Reverb" amount="0.15"/>
+  <automation target="pan" points="0:-0.75; 4:0.75; 8:-0.75; 12:0.75; 16:-0.75; 20:0.75; 24:-0.75; 28:0.75; 32:-0.75"/>
+  <note time="0" dur="0.25" pitch="hat" vel="0.5"/>
+  <note time="0.5" dur="0.25" pitch="hat" vel="0.3"/>
+</track>

@@ -12,10 +12,12 @@ description: 用 MusicGen 命令行把音乐需求做成可交付的 WAV——�
 
 **能力边界**：GM 目录 **128 件真实采样音色**（钢琴 / 吉他 / 贝斯各 8，弦乐与合奏 16，铜管 8，簧管 8，
 吹管 8，民族乐器 8，色彩打击 8，合成主音 / 铺底 / 音效 24…），按需 `samples fetch` 安装，**单件 3–5 秒**；
-另有内置合成鼓组、11 个效果、44.1kHz 立体声 WAV。
+另有内置合成鼓组、**20 个效果**、编组总线与发送返回、**轨道组**（组效果 / 组推子 / 组曲线）、
+**多段贝塞尔自动化曲线**（增益、声像、效果参数随时间变化）、**部分音效**（只在一段时间生效），
+44.1kHz 立体声 WAV，以及 **MIDI 导出**（`export-midi`，可进 DAW 继续编曲）。
 `synth_*` 与 `.synth.json` 合成音色只是「目录里确实没有对应真实乐器」时的补充，**不是缺省选项**。
 内置 `vocal` 音色只有元音吟唱（没有歌词）；音频分析里人声是原唱分轨原样保留。
-没有 MIDI 导出、速度渐变、延音踏板（导入有 `import-midi`）。
+没有速度渐变、延音踏板（导入有 `import-midi`）。
 
 ## 开工前检查
 
@@ -197,12 +199,39 @@ python -m musicgen effect remove songs/MySong/MySong.musicproj --track 1 --index
 python -m musicgen effect save songs/MySong/MySong.musicproj --track 1 -o fx/bus.fx.json
 python -m musicgen effect check fx/bus.fx.json
 python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script fx/bus.fx.json
+
+# 总线与发送（混音：音乐总线 EQ、混响返回、母带限制）
+python -m musicgen bus add songs/MySong/MySong.musicproj --name Reverb --gain -5dB
+python -m musicgen bus list songs/MySong/MySong.musicproj          # 核对归属与发送
+python -m musicgen effect add songs/MySong/MySong.musicproj --bus Reverb --type reverb -p decay=3.2 -p mix=1
+python -m musicgen bus send songs/MySong/MySong.musicproj --track 1 --to Reverb --amount 0.3
+
+# 轨道组与自动化曲线
+python -m musicgen group add songs/MySong/MySong.musicproj --name Drums --gain -2dB
+python -m musicgen group assign songs/MySong/MySong.musicproj --track 1 --group Drums
+python -m musicgen curve set songs/MySong/MySong.musicproj --track 1 --target gain --points "0:0; 8:-6; 16:0"
+python -m musicgen curve set songs/MySong/MySong.musicproj --group Drums --scope group --target gain --points "0:0; 24:0; 32:-30"
+
+# MIDI 导出（进 DAW 继续编曲；只带音符/弯音/音色号，不含混音）
+python -m musicgen export-midi songs/MySong/MySong.musicproj -o output/MySong.mid
+python -m musicgen export-midi songs/MySong/MySong.musicproj --split output/midi
 ```
 
 效果链：`stereo` 立体 / `echo` 回声 / `fade` 淡入淡出 / `electro` 电音 / `8bit` `4bit` `2bit` 位深压缩 /
 `eq` 均衡（`low` `mid` `high` `mid_freq`）/ `drive` 失真（`amount` `tone` `mix`）/
-`compressor` 压缩（`threshold` `ratio` `release` `makeup`）/ `chorus` 合唱（`rate` `depth` `mix`），参数只写要改的。
-逆向精修补频谱用 `eq`，补谐波密度用 `drive`，压动态用 `compressor`，加宽用 `chorus`。
+`compressor` 压缩（`threshold` `ratio` `release` `makeup`）/ `chorus` 合唱（`rate` `depth` `mix`）/
+`filter` 滤波（`mode` `freq` `resonance` `lfo_rate`）/ `tremolo` 颤音 / `autopan` 自动声像 /
+`flanger` 镶边 / `phaser` 相位 / `tape` 磁带 / `limiter` 限制 / `gate` 噪声门 / `reverb` 混响，
+参数只写要改的。
+
+**组与曲线怎么选**：想让几条轨道「粘」在一起（鼓组、弦乐组）→ 用 `group`；
+只想让某轨音量/声像随时间动 → 用轨道上的 `curve`；想让某个效果只在一段出现 → 给 `effect` 写 `start`/`end`。
+组和轨道可以同时有曲线，两级叠加。
+
+**混音用法**：鼓组挂一条 bus 做 `compressor`（比逐轨压更紧、更整齐），音乐总线挂 `eq` + `stereo`，
+混响和延迟各建一条返回 bus（`reverb` / `echo` 的 `mix` 设 1 或接近 1），轨道用 `send` 送量。
+母带最后放 `limiter`（`ceiling=-1`）。总线不要绕成环——总线之间不支持互相发送。
+逆向精修补频谱用 `eq`，补谐波密度用 `drive`，压动态用 `compressor`，加宽用 `chorus` 或 `stereo`。
 `fade` 放在链尾；回声尾巴受 `length` 限制，需要余韵就加 `tail`；`electro` 只给 1–2 条轨，别全铺。
 `8bit` / `4bit` / `2bit` 位深固定，调 `rate`（越低越破）与 `mix`（留一点干声更耐听），插入后响度不变。
 
@@ -226,6 +255,10 @@ python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script
 | 11 | `instrument="synth"` 必须带 `patch` | 只警告并静默换成兜底合成器，音色完全不对 | 写 `patch="../synths/xxx.synth.json"`，相对音轨文件；先 `synth check` 过一遍 |
 | 12 | 合成音脚本的 `oscillators` 只认 `sine/square/saw/triangle/noise` | 写错波形名载入失败，同样退回兜底音色 | 参数表见 `synth show <名>`；改完必须 `synth check` |
 | 13 | 渲染输出里出现「采样未就绪」告警 | 该轨整条被合成器顶替，音色断层 | 按提示的 `samples fetch --instrument xxx` 装上后重渲，不要带着告警交付 |
+| 14 | 总线名写错不会报错 | 只给警告，该轨直接并入母带、发送被忽略，混音完全不是你设想的 | 写完跑 `bus list` 核对归属与发送；`validate` 也会提示不存在的总线 |
+| 15 | 总线之间不能互相发送 | 写了也不会生效（结构上禁止，避免反馈环） | 要串联就放在同一条总线的效果链里，按顺序排 |
+| 16 | 返回总线的混响必须 `mix=1` | 留了干声会和主路径叠加，听起来像重影 | 返回总线 `mix=1`，用轨道 `send` 量控制湿度 |
+| 17 | MIDI 导出只带音符、弯音与音色号 | 效果链、总线、混音不会被写进去（那是音频层的事） | 要听成品还是交 WAV；MIDI 是给 DAW 继续编曲用的 |
 
 ## 交付
 
@@ -246,10 +279,10 @@ python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script
 | 文件 | 什么时候读 |
 | --- | --- |
 | `references/编曲设计.md` | 通用编曲方法（功能层、曲式、和声、配器、织体、律动、风格配方）。先按它设计，再看 §13 映射到本项目的 128 件 GM 目录音色 |
-| `references/工程格式.md` | 写或改 `*.musicproj` / `*.track.xml` 之前 |
-| `references/混音与验收.md` | 定 gain / pan / reverb、判断成品能不能交时 |
+| `references/工程格式.md` | 写或改 `*.musicproj` / `*.track.xml` 之前；总线 `<bus>`、组 `<group>` 与 `<send>` 见 §4.1 |
+| `references/混音与验收.md` | 定 gain / pan / reverb / 总线、判断成品能不能交时；总线工作流见 §4.1 |
 | `references/音频还原.md` | 用户给的是音频而不是需求（「把这首 mp3 还原成工程」）时；含参数、分轨映射、误检清理与验收清单 |
 | `references/逆向判断.md` | 要**精修**还原结果（换音色、上合成音、加效果、拆分层、改段落标签）时；含判据、决策文件 schema 与验收方法 |
 
-仓库 `examples/` 里还有五个可跑范例：`demo`（钢琴小品）、`ensemble`（四重奏）、`twinkle`（儿歌改编）、`band`（含鼓）、`moonlight`（三连音与长踏板模拟）。
+仓库 `examples/` 里还有八个可跑范例：`demo`（钢琴小品）、`ensemble`（四重奏）、`twinkle`（儿歌改编）、`band`（含鼓）、`moonlight`（三连音与长踏板模拟）、`daybreak`（带效果链的五轨）、`mixbus`（总线 + 发送 + 母带限制的混音示范）、`groupcurve`（轨道组 + 贝塞尔曲线 + 部分音效）。
 

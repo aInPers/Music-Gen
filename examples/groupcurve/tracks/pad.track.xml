@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 低通中心频率由曲线从 300Hz 扫到 4.2kHz；回声只在最后 2 小节进来 -->
+<track name="Pad" instrument="synth_pad" group="Music" gain="-10dB">
+  <send bus="Reverb" amount="0.4"/>
+  <effect type="filter" mode="lowpass" freq="800" resonance="1.2"/>
+  <effect type="echo" time="250" feedback="0.3" mix="0.35" start="24" end="32"/>
+  <automation target="effect.0.freq" points="0:220; 16:6000; 32:300"/>
+  <note time="0" dur="16" pitch="A2,E3" vel="0.45"/>
+  <note time="16" dur="16" pitch="F2,C3" vel="0.45"/>
+</track>

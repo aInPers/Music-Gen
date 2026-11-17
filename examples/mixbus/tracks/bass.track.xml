@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Bass" instrument="bass" bus="Music" gain="-4dB" pan="0" loop="true" loopLen="8" loopCount="3">
+  <note time="0" dur="2.5" pitch="C2" vel="0.62"/>
+  <note time="2.5" dur="1.5" pitch="G1" vel="0.55"/>
+  <note time="4" dur="2.5" pitch="A1" vel="0.6"/>
+  <note time="6.5" dur="1.5" pitch="F1" vel="0.55"/>
+</track>

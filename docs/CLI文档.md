@@ -50,7 +50,9 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | [`track`](#11-track--note--轨道与音符编辑) | 新增 / 编辑 / 删除 / 列出音轨 | 不需要 |
 | [`note`](#11-track--note--轨道与音符编辑) | 增删改查音轨里的音符 | 不需要 |
 | [`instrument`](#12-instrument--乐器注册表) | 增删查改用户乐器注册表 | 不需要 |
-| [`effect`](#13-effect--音轨效果链) | 查看音效类型、增删改音轨效果链、音效脚本 | 不需要 |
+| [`effect`](#13-effect--音轨效果链) | 查看音效类型、增删改音轨 / 总线效果链、音效脚本 | 不需要 |
+| [`bus`](#16-bus--编组总线与发送) | 查看 / 增删总线，设置轨道发送 | 不需要 |
+| [`export-midi`](#17-export-midi--导出-midi) | 工程 → SMF type 1（多轨或每轨分文件） | 不需要 |
 | [`transcribe`](#20-transcribe-import-midi-bundle--转谱与自带音源) | 音频 → MIDI（MuScriptor），可顺手重建工程 | 联网（首次下权重） |
 | [`import-midi`](#20-transcribe-import-midi-bundle--转谱与自带音源) | MIDI → 工程，默认自带采样 | 需要本地已有采样 |
 | [`bundle`](#20-transcribe-import-midi-bundle--转谱与自带音源) | 把采样打包进工程，脱离全局缓存 | 需要本地已有采样 |
@@ -629,27 +631,29 @@ python -m musicgen instrument reset
 
 ---
 
-## 13. `effect` — 音轨效果链
+## 13. `effect` — 音轨 / 总线效果链
 
-效果写在音轨文件的 `<effect>` 里，按出现顺序串联，处理位置在**声像之后、汇入总线之前**。
+效果写在音轨文件的 `<effect>` 里（或工程文件 `<bus>` / `<master>` 下），按出现顺序串联。
+音轨效果的处理位置在**声像之后、汇入总线之前**。
 DSP 细节与工程格式见[项目文档 §6.4](项目文档.md#64-效果链-effect)。
 
 ### 13.1 命令一览
 
 | 命令 | 作用 |
 | --- | --- |
-| `effect types` | 列出已注册的 11 个音效，以及每个参数的范围与默认值 |
-| `effect list <proj> [--track X]` | 查看效果链；不给 `--track` 就列出全部音轨 |
-| `effect add <proj> --track X --type T [-p 键=值 …]` | 给音轨追加一个音效 |
-| `effect set <proj> --track X --index N -p 键=值 …` | 改第 N 个音效（1-based）；值写 `none` 表示删掉该参数 |
-| `effect remove <proj> --track X --index N` | 删除第 N 个音效 |
-| `effect save <proj> --track X -o F` | 把该轨效果链存成 `.fx.json` 脚本 |
+| `effect types` | 列出已注册的 20 个音效，以及每个参数的范围与默认值 |
+| `effect list <proj> [--track X \| --bus B]` | 查看效果链；都不给就列出全部音轨 |
+| `effect add <proj> (--track X \| --bus B) --type T [-p 键=值 …]` | 追加一个音效 |
+| `effect set <proj> (--track X \| --bus B) --index N -p 键=值 …` | 改第 N 个音效（1-based）；值写 `none` 表示删掉该参数 |
+| `effect remove <proj> (--track X \| --bus B) --index N` | 删除第 N 个音效 |
+| `effect save <proj> --track X -o F` | 把该轨效果链存成 `.fx.json` 脚本（仅音轨） |
 | `effect check F` | 校验脚本（不写工程） |
-| `effect apply <proj> --track X --script F [--append]` | 应用脚本：默认整链替换，`--append` 追加 |
+| `effect apply <proj> --track X --script F [--append]` | 应用脚本：默认整链替换，`--append` 追加（仅音轨） |
 
 `--track` 与 `track` / `note` 命令一致：1-based 序号、名称、文件名都能定位，支持部分匹配。
+`--track` 与 `--bus` 互斥：给总线挂效果用 `--bus Drums`。
 
-### 13.2 十一个预设效果
+### 13.2 二十个预设效果
 
 | 类型 | 中文 | 参数（括号里是默认值） |
 | --- | --- | --- |
@@ -664,6 +668,15 @@ DSP 细节与工程格式见[项目文档 §6.4](项目文档.md#64-效果链-ef
 | `drive` | 失真 | `amount` 0–1（0.35）· `tone` 0–1（0.55）· `output` ±24dB（0）· `mix` 0–1（1） |
 | `compressor` | 压缩 | `threshold` −48–0dB（−18）· `ratio` 1–20（3）· `release` 20–1000ms（180）· `makeup` ±18dB（0） |
 | `chorus` | 合唱 | `rate` 0.05–6Hz（0.6）· `depth` 0.5–20ms（6）· `mix` 0–1（0.35）· `voices` 1–3（2） |
+| `filter` | 滤波 | `mode` lowpass/highpass/bandpass（lowpass）· `freq` 20–20000Hz（1200）· `resonance` 0.5–12（0.9）· `lfo_rate` 0–8Hz（0）· `lfo_depth` 0–4oct（0）· `mix` 0–1（1） |
+| `tremolo` | 颤音 | `rate` 0.1–20Hz（5）· `depth` 0–1（0.35）· `shape` sine/triangle/square · `stereo` 0–1（0，左右相差） |
+| `autopan` | 自动声像 | `rate` 0.02–8Hz（0.25）· `depth` 0–1（0.7）· `shape` sine/triangle/square |
+| `flanger` | 镶边 | `rate` 0.02–5Hz（0.35）· `depth` 0.3–10ms（3）· `feedback` 0–0.9（0.45）· `mix` 0–1（0.5） |
+| `phaser` | 相位 | `rate` 0.02–5Hz（0.4）· `depth` 0–1（0.8）· `stages` 2–8（4）· `feedback` 0–0.7（0.3）· `mix` 0–1（0.5） |
+| `tape` | 磁带 | `drive` 0–1（0.35）· `tone` 0–1（0.55）· `wow` 0–1（0.3）· `flutter` 0–1（0.2）· `mix` 0–1（1） |
+| `limiter` | 限制 | `ceiling` −12–0dB（−1）· `release` 20–500ms（80）· `lookahead` 1–20ms（4） |
+| `gate` | 噪声门 | `threshold` −70–0dB（−42）· `attack` 0.1–50ms（5）· `release` 10–1000ms（120）· `hold` 0–500ms（40） |
+| `reverb` | 混响 | `size` 0–1（0.5）· `decay` 0.2–8s（2.2）· `tone` 0–1（0.55）· `predelay` 0–200ms（20）· `width` 0–1（0.8）· `mix` 0–1（0.3） |
 
 * **只写要改的参数**，其余用注册表默认值，所以 XML 里可以只留 `<effect type="echo" mix="0.25"/>`。
 * 单位可带可不带：`-p time=450` 与 `-p time=450ms` 等价；数值 `450`、`0.25` 都行。
@@ -692,6 +705,14 @@ python -m musicgen effect remove songs\Song\Song.musicproj --track Guitar --inde
 :: 查看结果并渲染
 python -m musicgen effect list songs\Song\Song.musicproj --track Guitar
 python -m musicgen render songs\Song\Song.musicproj -o out\song.wav
+```
+
+总线效果（处理器换成 `--bus`）：
+
+```bat
+python -m musicgen effect add songs\Song\Song.musicproj --bus Drums --type compressor -p threshold=-20 -p ratio=3.5
+python -m musicgen effect add songs\Song\Song.musicproj --bus Music --type 均衡 -p low=1.5 -p high=1
+python -m musicgen effect list songs\Song\Song.musicproj --bus Drums
 ```
 
 ### 13.4 音效脚本 `.fx.json`
@@ -735,6 +756,91 @@ python -m musicgen effect apply songs\Song\Song.musicproj --track Guitar --scrip
 * **越界值**：手写 XML 时夹到范围内并给警告；用 `effect add/set` 时直接拒绝。
 * **回声尾巴受工程长度限制**：超出 `length` 的部分会被截掉；需要更长余韵就加 `tail="3s"` 或加大 `length`。
 * **淡入淡出按「实际发声区间」算**：2 秒的轨在 60 秒工程里也只淡它自己的头尾，不会淡一整分钟。
+* **总线是并联的**：同一条总线上所有轨道共享效果链，压缩会比逐轨压更平滑（鼓组尤其明显）。
+* **返回总线的混响参数用 `mix=1`**：发送进去的已经是「湿声量」，不必再和干声混合。
+
+---
+
+## 16. `bus` — 编组总线与发送
+
+总线把多条轨道汇总后统一处理，再进母带。典型用法是鼓组压缩、音乐总线 EQ，以及混响 / 延迟返回。
+
+### 16.1 命令一览
+
+| 命令 | 作用 |
+| --- | --- |
+| `bus list <proj>` | 列出总线、推子、效果链、归属轨道与发送来源 |
+| `bus add <proj> --name N [--gain -3dB] [--mute]` | 新增总线 |
+| `bus set <proj> --name N [--gain -6dB] [--mute/--no-mute] [--rename M]` | 改推子 / 静音 / 改名（改名同步所有引用） |
+| `bus remove <proj> --name N [--force]` | 删除总线；仍被引用时默认拒绝，`--force` 一并清理引用 |
+| `bus send <proj> --track X --to N --amount 0.35` | 设置发送量（0–1，也认 `35%`） |
+| `bus unsend <proj> --track X --to N` | 取消发送 |
+| `track edit <proj> --track X --bus N` | 让轨道归属某条总线；`--bus none` 取消归属 |
+
+### 16.2 例子
+
+```bat
+:: 建三条总线：鼓组、音乐、混响返回
+python -m musicgen bus add songs\Song\Song.musicproj --name Drums --gain -1dB
+python -m musicgen bus add songs\Song\Song.musicproj --name Music --gain -2dB
+python -m musicgen bus add songs\Song\Song.musicproj --name Reverb --gain -5dB
+
+:: 总线效果
+python -m musicgen effect add songs\Song\Song.musicproj --bus Drums --type compressor -p threshold=-20 -p ratio=3.5
+python -m musicgen effect add songs\Song\Song.musicproj --bus Reverb --type reverb -p decay=3.2 -p mix=1
+
+:: 接轨与发送
+python -m musicgen track edit songs\Song\Song.musicproj --track Kick --bus Drums
+python -m musicgen track edit songs\Song\Song.musicproj --track Piano --bus Music
+python -m musicgen bus send songs\Song\Song.musicproj --track Piano --to Reverb --amount 28%
+
+:: 看结果
+python -m musicgen bus list songs\Song\Song.musicproj
+```
+
+### 16.3 信号顺序与规则
+
+```
+音符/音频 → 轨道增益 → 轨道混响 → 声像 → 轨道效果 → 归属总线 / 发送 → 总线效果 → 总线推子 → 母带 → 归一化
+```
+
+* 发送是 **post-fader**：轨道推子拉低，进入混响的量同比减少。
+* 总线之间不再互相发送，结构上不可能出现反馈环；多条总线按工程里的出现顺序处理。
+* 轨道可以不归属任何总线，直接进母带。
+* 总线名大小写不敏感；重名直接报错（路由会有歧义）。
+* 引用了不存在的总线：`validate` 给警告，渲染继续——该轨直接并入母带，发送被忽略。
+* `bus remove` 会检查引用，仍在使用时拒绝；`--force` 会清掉轨道的 `bus` 属性与相关 `<send>`。
+
+---
+
+## 17. `export-midi` — 导出 MIDI
+
+把工程写成标准 MIDI 文件（SMF type 1），进 DAW 继续编曲，或交给别的音源。
+
+### 17.1 参数
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `-o`, `--output` | 与工程同名的 `.mid` | 输出文件 |
+| `--tracks` | 全部 | 只导出部分轨道：`1,3,Piano` |
+| `--no-loop` | 关 | 不展开循环，只导出原始乐句 |
+| `--bend-range` | `2` | 弯音范围（半音），换算 pitch wheel 用 |
+| `--split 目录` | 关 | 每轨单独导出一个 type 0 文件 |
+
+```bat
+python -m musicgen export-midi songs\Song\Song.musicproj
+python -m musicgen export-midi songs\Song\Song.musicproj -o out\song.mid --tracks 1,2
+python -m musicgen export-midi songs\Song\Song.musicproj --split out\midi
+```
+
+### 17.2 输出规则
+
+* 分辨率为 **480 tpq**，第 0 轨是速度与拍号，其余每轨一个乐器轨。
+* 通道从 0 起分配并**跳过 9**；鼓轨固定走通道 9（GM 打击乐），音高按 GM 打击乐编号原样保留。
+* 写入 `program change`：优先用注册表里的 `gm` 包名查 GM 音色号，找不到时退回内置表（钢琴 0、小提琴 40、大提琴 42、小号 56、竖笛 74、吉他 25、贝斯 33、人声 53、合成主音 80、合成垫 88）。
+* 弯音：`bend` 曲线按「半音偏离 / `--bend-range`」换算成 pitch wheel，音符结束自动回中。
+* 循环轨默认展开，展开规则与渲染一致，所以 MIDI 时长和 WAV 对得上。
+* 同一 tick 内先 `note_off` 再 `note_on`，避免同音高粘连。
 
 ---
 
@@ -1289,3 +1395,97 @@ python -m musicgen bundle songs/Song
 `samples_cache`。所以整个工程目录可以拷到别的机器直接 `render`。
 
 合成音色是代码生成的，不需要采样；鼓组是内置合成鼓，也不需要外部文件。
+
+## 21. `group` — 轨道组
+
+组和总线的区别：**组在总线之前**，是编曲层的容器。几条轨道先汇总成一条组信号，
+统一走效果链与推子，再交给组归属的总线。组内轨道自己的增益、声像、效果照旧生效，
+是**叠加**而不是覆盖。
+
+```
+musicgen group list <工程>
+musicgen group add <工程> --name Drums [--gain -2dB] [--pan 0] [--bus Mix]
+musicgen group set <工程> --name Drums [--gain ...] [--pan ...] [--bus ...] [--mute]
+musicgen group remove <工程> --name Drums [--force]
+musicgen group assign <工程> --track Kick [--group Drums]     # 不给 --group 表示移出
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `--gain` | 组推子，写 `-2dB` 或 `-2` 都行 |
+| `--pan` | 组声像 −1…+1 |
+| `--bus` | 组输出接到哪条总线，不写直接进母带 |
+| `--force` | 组内还有轨道时强制删除（同时清掉轨道里的 `group` 引用） |
+
+注意：**轨道归组后，自身的 `bus` 不再生效**（去向由组决定），但 `send` 仍然有效，
+所以组内的鼓照样能往混响总线上送。
+
+`group list` 会列出每个组的推子、声像、效果链、曲线数量、组内轨道与输出去向。
+
+## 22. `curve` — 自动化曲线
+
+曲线让增益、声像或效果参数随时间变化，多点连成三次贝塞尔。可以挂在**轨道、组、总线**上。
+
+```
+musicgen curve list <工程> [--track X | --group X | --bus X]
+musicgen curve set <工程> --target gain --points "0:0; 8:-6; 16:0" \
+        [--track X | --group X | --bus X] [--mode bezier|linear|step] [--tension 0.5]
+musicgen curve remove <工程> --target gain [--track X | --group X | --bus X]
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `--target` | `gain` / `pan` / `reverb` / `effect.<序号>.<参数>`（效果序号从 0 起） |
+| `--points` | `拍:值`，分号分隔，如 `"0:0; 8:-6; 16:0"` |
+| `--mode` | `bezier` 平滑（默认）/ `linear` 直线 / `step` 阶跃保持 |
+| `--tension` | 贝塞尔张力，0 = 折线，0.5 标准，>0.7 会过冲 |
+
+值与静态参数的关系：
+
+* `gain` / `pan`：曲线是**相对量**，叠加在静态值上（轨道 −3dB + 曲线 −6dB = 最终 −9dB）。
+  组和轨道各自一条曲线，两级推子叠加。
+* `effect.N.参数`：曲线是**绝对值**，直接覆盖该参数。
+
+```bash
+# 轨道音量：前 8 拍渐入，最后 8 拍收掉
+musicgen curve set song.musicproj --track Piano --target gain --points "0:-12; 8:0; 24:0; 32:-20"
+
+# 滤波器扫频：0 拍 300Hz → 16 拍 4.2kHz → 32 拍 500Hz
+musicgen curve set song.musicproj --track Pad --target effect.0.freq --points "0:300; 16:4200; 32:500"
+
+# 组声像左右摆
+musicgen curve set song.musicproj --group Drums --target pan --points "0:-0.6; 8:0.6; 16:-0.6"
+```
+
+效果参数曲线是分块重算的（93ms 一块、重叠一半加窗），适合滤波、失真、干湿这类参数；
+`echo` / `reverb` 这种长尾效果不要用曲线扫，改用下面的区间。
+
+### 22.1 部分音效与效果叠加
+
+`effect` 支持时间区间，只在某一段生效，边界 20ms 淡入淡出：
+
+```xml
+<effect type="echo" time="250" mix="0.4" start="16" end="24"/>
+```
+
+```bash
+musicgen effect add song.musicproj --track Piano --type echo -p mix=0.4 --start 16 --end 24
+```
+
+叠加的三层：轨道效果链（串联）→ 组效果链（叠加其上）→ 总线效果链（再叠加）。
+所以同一段信号可以同时被“轨道失真 + 组压缩 + 总线磁带”处理，互不覆盖。
+
+## 23. `track edit` 的周期参数
+
+| 参数 | 等价写法 | 说明 |
+| --- | --- | --- |
+| `--period 4` | `--loop-len 4` | 一个 pattern 多长（拍），写上就自动开启循环 |
+| `--repeat 8` | `--loop-count 8` | 重复几次，0 = 到工程结束 |
+| `--offset 2` | — | 整轨起点偏移（拍） |
+| `--gap 0.5` | — | 每次重复之间空几拍 |
+| `--group Drums` | — | 归入组，写 `none` 表示移出 |
+
+```bash
+# 1 小节的鼓 pattern 铺满 8 小节，比手写 8 遍省 7/8 的行数
+musicgen track edit song.musicproj --track Hat --period 1 --repeat 32
+```

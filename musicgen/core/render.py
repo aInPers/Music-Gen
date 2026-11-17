@@ -10,6 +10,7 @@ from typing import Callable, Sequence
 import numpy as np
 
 from .audioclip import AudioClipError, load_clip
+from .automation import Curve, apply_gain_curve, apply_pan_curve
 from .effects import create_effect
 from .eventbank import EventSampleBank
 from .instruments import InstrumentRegistry
@@ -129,6 +130,108 @@ def _effect_label(spec) -> str:
         return getattr(spec, "type", "?")
 
 
+def _find_curve(automation: Sequence[Curve], target: str) -> Curve | None:
+    """按目标名找曲线（大小写不敏感）；后写的覆盖先写的。"""
+    wanted = target.strip().lower()
+    found = None
+    for curve in automation:
+        if curve.target.strip().lower() == wanted:
+            found = curve
+    return found
+
+
+def _effect_curves(automation: Sequence[Curve], index: int) -> dict[str, Curve]:
+    """取出针对第 ``index`` 个效果的参数曲线：``effect.2.mix`` → ``{"mix": Curve}``。"""
+    prefix = f"effect.{index}."
+    found: dict[str, Curve] = {}
+    for curve in automation:
+        target = curve.target.strip().lower()
+        if target.startswith(prefix):
+            key = target[len(prefix):].strip()
+            if key:
+                found[key] = curve
+    return found
+
+
+def _apply_effect_automated(dry: np.ndarray, spec, curves: dict[str, Curve],
+                            sr: int, bpm: float, block: int = 4096) -> np.ndarray:
+    """按参数曲线分块重处理，重叠 50% 用汉宁窗加权拼接。
+
+    效果本身有状态（回声、混响的尾巴），分块不可能完全无缝，所以块取 93ms、
+    重叠一半再加窗；参数自动化用在滤波、失真、干湿这类地方听不出接缝。
+    """
+    frames = dry.shape[1]
+    if frames == 0 or not curves:
+        return create_effect(spec.type, spec.params).process(dry, sr)
+    hop = max(1, block // 2)
+    out = np.zeros_like(dry)
+    weight = np.zeros(frames, dtype=np.float32)
+    window = np.hanning(block).astype(np.float32)
+    sec_per_beat = 60.0 / max(1e-9, bpm)
+    for start in range(0, frames, hop):
+        end = min(frames, start + block)
+        chunk = dry[:, start:end]
+        if chunk.shape[1] < 16:
+            break
+        centre_beat = (start + chunk.shape[1] / 2.0) / sr / sec_per_beat
+        params = dict(spec.params)
+        for key, curve in curves.items():
+            if spec.cls.param(key) is not None:
+                params[key] = curve.value_at(centre_beat)
+        wet = create_effect(spec.type, params).process(chunk, sr)
+        w = window[: chunk.shape[1]]
+        out[:, start:end] += wet * w
+        weight[start:end] += w
+    return out / np.maximum(weight, 1e-6)
+
+
+def _blend_range(dry: np.ndarray, wet: np.ndarray, start_beat: float | None,
+                 end_beat: float | None, bpm: float, sr: int) -> np.ndarray:
+    """只在 [start, end) 拍内用湿声，边界 20ms 淡入淡出。"""
+    frames = dry.shape[1]
+    if frames == 0:
+        return wet
+    sec_per_beat = 60.0 / max(1e-9, bpm)
+    a = 0 if start_beat is None else int(max(0.0, start_beat * sec_per_beat * sr))
+    b = frames if end_beat is None else int(min(float(frames), end_beat * sec_per_beat * sr))
+    if b <= a:
+        return dry
+    mask = np.zeros(frames, dtype=np.float32)
+    mask[a:b] = 1.0
+    fade = min(int(0.02 * sr), max(1, (b - a) // 2))
+    if fade > 1:
+        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+        mask[a:a + fade] *= ramp
+        mask[b - fade:b] *= ramp[::-1]
+    return (dry * (1.0 - mask) + wet * mask).astype(np.float32)
+
+
+def _run_effects(buffer: np.ndarray, specs: Sequence, automation: Sequence[Curve],
+                 sr: int, bpm: float, label: str,
+                 warn: Callable[[str], None],
+                 report_fn: Callable[[float, str], None],
+                 progress: float) -> np.ndarray:
+    """按顺序跑效果链：支持参数曲线与时间区间。"""
+    for index, spec in enumerate(specs):
+        name = _effect_label(spec)
+        report_fn(progress, f"音效：{name}（{label}）")
+        try:
+            curves = _effect_curves(automation, index)
+            if curves:
+                wet = _apply_effect_automated(buffer, spec, curves, sr, bpm)
+            else:
+                wet = create_effect(spec.type, spec.params).process(buffer, sr)
+            if spec.ranged:
+                wet = _blend_range(buffer, wet, spec.start, spec.end, bpm, sr)
+            buffer = wet
+        except Exception as exc:  # noqa: BLE001 - 单个效果出错不该让整首渲染失败
+            warn(
+                f"音效 {name}（{spec.type}）在「{label}」上处理失败，"
+                f"该效果已跳过：{type(exc).__name__}: {exc}"
+            )
+    return buffer
+
+
 def _note_offsets(track: Track, project: Project, length_s: float) -> list[float]:
     """把循环展开成每次重复的起始偏移（秒）。"""
     bpm = track.resolve_bpm(project.bpm)
@@ -138,12 +241,13 @@ def _note_offsets(track: Track, project: Project, length_s: float) -> list[float
     period_s = track.period_beats(project.beats_per_bar) * sec_per_beat
     if period_s <= 1e-6:
         return [0.0]
+    step_s = period_s + max(0.0, track.loop_gap_beats) * sec_per_beat
     if track.loop_count > 0:
         reps = track.loop_count
     else:
-        reps = int(math.ceil(length_s / period_s - 1e-9)) + 1
+        reps = int(math.ceil(length_s / step_s - 1e-9)) + 1
     reps = max(1, reps)
-    return [i * period_s for i in range(reps)]
+    return [i * step_s for i in range(reps)]
 
 
 #: 电平表包络的帧长（秒）
@@ -206,6 +310,16 @@ def render_project(
         warnings.append("没有可渲染的音轨（全部静音或为空）")
 
     master = np.zeros((2, frames), dtype=np.float32)
+    #: 总线输入累加器（键为小写名），轨道归属与发送都汇到这里
+    bus_inputs: dict[str, np.ndarray] = {
+        bus.name.strip().lower(): np.zeros((2, frames), dtype=np.float32)
+        for bus in project.buses
+    }
+    #: 组输入累加器；组在总线之前汇总，组内轨道共享组的处理
+    group_inputs: dict[str, np.ndarray] = {
+        group.name.strip().lower(): np.zeros((2, frames), dtype=np.float32)
+        for group in project.groups
+    }
     note_cache: dict[tuple, np.ndarray] = {}
     # 时间轴补全：同一分轨拆成多条工程轨时，同一起音的多个音符会挂同一个
     # 立体声块。只播一次，否则该区间被叠 N 遍（响 +6dB 以上）。
@@ -281,7 +395,7 @@ def render_project(
             use_src = (note.src_time is not None
                        and abs(note.time * sec_per_beat - note.src_time) <= 0.005)
             for offset in offsets:
-                base = note.src_time if use_src else note.time * sec_per_beat
+                base = note.src_time if use_src else (note.time + track.start_offset_beats) * sec_per_beat
                 start = int(round((base + offset) * sr))
                 if start >= frames:
                     continue
@@ -300,31 +414,70 @@ def render_project(
             stats.append(TrackStat(track.name, track.instrument, 0, 0.0, 0.0))
             continue
 
-        buffer *= db_to_gain(track.gain_db)
+        bpm_track = track.resolve_bpm(project.bpm)
+        gain_curve = _find_curve(track.automation, "gain")
+        if gain_curve is not None:
+            buffer = apply_gain_curve(buffer, gain_curve, sr, bpm_track, track.gain_db)
+        else:
+            buffer *= db_to_gain(track.gain_db)
         if track.reverb > 0:
             report(done / total_notes * 0.9, f"混响：{track.name}")
             buffer = _apply_reverb(buffer, track.reverb, sr)
-        left, right = _pan_gains(track.pan)
-        if is_audio:
-            # 音频轨是立体声素材，pan=0 必须原样通过；等功率声像会给两声道各 -3dB
-            left *= math.sqrt(2.0)
-            right *= math.sqrt(2.0)
-        buffer[0] *= left
-        buffer[1] *= right
+        pan_curve = _find_curve(track.automation, "pan")
+        if pan_curve is not None:
+            buffer = apply_pan_curve(buffer, pan_curve, sr, bpm_track, track.pan)
+            if is_audio:
+                buffer *= math.sqrt(2.0)
+        else:
+            left, right = _pan_gains(track.pan)
+            if is_audio:
+                # 音频轨是立体声素材，pan=0 必须原样通过；等功率声像会给两声道各 -3dB
+                left *= math.sqrt(2.0)
+                right *= math.sqrt(2.0)
+            buffer[0] *= left
+            buffer[1] *= right
 
-        # 效果链：按 XML 里出现的顺序串联，位置在声像之后、汇入总线之前
-        for spec in track.effects:
-            label = _effect_label(spec)
-            report(done / total_notes * 0.9, f"音效：{label}（{track.name}）")
-            try:
-                buffer = create_effect(spec.type, spec.params).process(buffer, sr)
-            except Exception as exc:  # noqa: BLE001 - 单个效果出错不该让整首渲染失败
+        # 效果链：按 XML 里出现的顺序串联，位置在声像之后、汇入组/总线之前
+        buffer = _run_effects(
+            buffer, track.effects, track.automation, sr, bpm_track,
+            f"音轨「{track.name}」", warnings.append, report, done / total_notes * 0.9,
+        )
+
+        # 混音路由：归属组 → 该组；否则归属总线 → 该总线；发送 → 目标总线
+        group = project.find_group(track.group)
+        if track.group and group is None:
+            warnings.append(
+                f"音轨「{track.name}」归属的组「{track.group}」不存在，已按无组处理"
+            )
+        if group is not None:
+            if track.bus:
                 warnings.append(
-                    f"音效 {label}（{spec.type}）在音轨「{track.name}」上处理失败，"
-                    f"该效果已跳过：{type(exc).__name__}: {exc}"
+                    f"音轨「{track.name}」已归入组「{group.name}」，"
+                    f"自身的总线归属不再生效（改由组的 bus 决定去向）"
                 )
-
-        master += buffer
+            group_inputs[group.name.strip().lower()] += buffer
+            target = None
+        else:
+            target = project.find_bus(track.bus)
+            if track.bus and target is None:
+                warnings.append(
+                    f"音轨「{track.name}」归属的总线「{track.bus}」不存在，已直接并入母带"
+                )
+            if target is not None:
+                bus_inputs[target.name.strip().lower()] += buffer
+            if target is None:
+                master += buffer
+        # 发送独立于归属：进组也照样能往混响/延迟总线上送
+        for sent in track.sends:
+            if sent.amount <= 1e-4:
+                continue
+            destination = project.find_bus(sent.bus)
+            if destination is None:
+                warnings.append(
+                    f"音轨「{track.name}」发送的目标总线「{sent.bus}」不存在，该发送已忽略"
+                )
+                continue
+            bus_inputs[destination.name.strip().lower()] += buffer * float(sent.amount)
 
         peak = float(np.max(np.abs(buffer)))
         sounding = float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr
@@ -341,6 +494,85 @@ def render_project(
         )
         notes_rendered += track_notes
         report(done / total_notes * 0.9, f"渲染音轨：{track.name}")
+
+    # ---- 组：汇总 → 效果链 → 自动化 → 推子 → 归属总线 / 母带 ----
+    for group in project.groups:
+        buffer = group_inputs.get(group.name.strip().lower())
+        if buffer is None:
+            continue
+        if group.mute:
+            warnings.append(f"组「{group.name}」已静音，其输出未进入母带")
+            continue
+        if not np.any(buffer):
+            continue
+        report(0.91, f"组处理：{group.name}")
+        buffer = _run_effects(
+            buffer, group.effects, group.automation, sr, project.bpm,
+            f"组「{group.name}」", warnings.append, report, 0.91,
+        )
+        g_gain = _find_curve(group.automation, "gain")
+        if g_gain is not None:
+            buffer = apply_gain_curve(buffer, g_gain, sr, project.bpm, group.gain_db)
+        else:
+            buffer *= db_to_gain(group.gain_db)
+        g_pan = _find_curve(group.automation, "pan")
+        if g_pan is not None:
+            buffer = apply_pan_curve(buffer, g_pan, sr, project.bpm, group.pan)
+        else:
+            left, right = _pan_gains(group.pan)
+            buffer[0] *= left
+            buffer[1] *= right
+
+        target = project.find_bus(group.bus)
+        if group.bus and target is None:
+            warnings.append(
+                f"组「{group.name}」归属的总线「{group.bus}」不存在，已直接并入母带"
+            )
+        if target is not None:
+            bus_inputs[target.name.strip().lower()] += buffer
+        else:
+            master += buffer
+        peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+        mono = np.mean(buffer, axis=0, dtype=np.float32)
+        stats.append(
+            TrackStat(
+                group.name, "", 0, peak, float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr,
+                " → ".join(_effect_label(spec) for spec in group.effects),
+                "group",
+                rms=float(np.sqrt(np.mean(np.square(mono, dtype=np.float64)))) if mono.size else 0.0,
+                envelope=_envelope(mono, sr),
+            )
+        )
+
+    # ---- 总线：汇总 → 效果链 → 推子 → 母带 ----
+    for bus in project.buses:
+        buffer = bus_inputs.get(bus.name.strip().lower())
+        if buffer is None:
+            continue
+        buffer = _run_effects(
+            buffer, bus.effects, bus.automation, sr, project.bpm,
+            f"总线「{bus.name}」", warnings.append, report, 0.90,
+        )
+        if bus.mute:
+            warnings.append(f"总线「{bus.name}」已静音，其输出未进入母带")
+            continue
+        b_gain = _find_curve(bus.automation, "gain")
+        if b_gain is not None:
+            buffer = apply_gain_curve(buffer, b_gain, sr, project.bpm, bus.gain_db)
+        else:
+            buffer *= db_to_gain(bus.gain_db)
+        master += buffer
+        peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+        sounding = float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr
+        mono = np.mean(buffer, axis=0, dtype=np.float32)
+        bus_rms = float(np.sqrt(np.mean(np.square(mono, dtype=np.float64)))) if mono.size else 0.0
+        stats.append(
+            TrackStat(
+                bus.name, "", 0, peak, sounding,
+                " → ".join(_effect_label(spec) for spec in bus.effects),
+                "bus", rms=bus_rms, envelope=_envelope(mono, sr),
+            )
+        )
 
     report(0.92, "母带处理")
     master *= db_to_gain(project.master_gain_db)

@@ -53,7 +53,9 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(
             fx.effect_keys(),
             ["stereo", "echo", "fade", "electro", "8bit", "4bit", "2bit",
-             "eq", "drive", "compressor", "chorus"],
+             "eq", "drive", "compressor", "chorus",
+             "filter", "tremolo", "autopan", "flanger", "phaser",
+             "tape", "limiter", "gate", "reverb"],
         )
 
     def test_resolve_key_chinese_and_alias(self) -> None:
@@ -70,11 +72,11 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(fx.resolve_effect("8位"), "8bit")
         self.assertEqual(fx.resolve_effect("2-BIT"), "2bit")
         self.assertEqual(fx.resolve_effect("过载"), "drive")
-        self.assertIsNone(fx.resolve_effect("tremolo"))
+        self.assertIsNone(fx.resolve_effect("space_echo_9000"))
 
     def test_unknown_type_raises(self) -> None:
         with self.assertRaises(fx.EffectError):
-            fx.create_effect("tremolo")
+            fx.create_effect("space_echo_9000")
 
     def test_defaults_and_override(self) -> None:
         echo = fx.create_effect("echo")
@@ -346,7 +348,7 @@ class ProjectEffectTests(unittest.TestCase):
         path = self._write(
             """<track name="Fx" instrument="piano">
   <effect type="echo" wrong="1"/>
-  <effect type="tremolo"/>
+  <effect type="space_echo_9000"/>
   <effect type="立体" width="9"/>
   <note time="0" dur="1" pitch="C4"/>
 </track>"""
@@ -427,10 +429,10 @@ class RenderEffectTests(unittest.TestCase):
         self.assertEqual(echoed.track_stats[0].effects, "回声")
 
     def test_unknown_effect_warns_instead_of_failing(self) -> None:
-        result = render_project(self._project([fx.EffectSpec("tremolo")]))
+        result = render_project(self._project([fx.EffectSpec("space_echo_9000")]))
         self.assertEqual(result.notes_rendered, 1)
         self.assertTrue(any("已跳过" in w for w in result.warnings))
-        self.assertEqual(result.track_stats[0].effects, "tremolo")
+        self.assertEqual(result.track_stats[0].effects, "space_echo_9000")
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +494,7 @@ class TrackEditEffectTests(unittest.TestCase):
 
     def test_rejects_unknown_type_and_bad_value(self) -> None:
         with self.assertRaises(te.TrackEditError):
-            te.add_effect(self.project, "Melody", "tremolo")
+            te.add_effect(self.project, "Melody", "space_echo_9000")
         with self.assertRaises(te.TrackEditError):
             te.add_effect(self.project, "Melody", "echo", {"mix": 2.0})
         with self.assertRaises(te.TrackEditError):
@@ -556,7 +558,7 @@ class CliEffectTests(unittest.TestCase):
 
     def test_cli_rejects_unknown_type(self) -> None:
         code, _, err = self.run_cli(
-            "effect", "add", str(self.project), "--track", "Melody", "--type", "tremolo"
+            "effect", "add", str(self.project), "--track", "Melody", "--type", "space_echo_9000"
         )
         self.assertEqual(code, 1)
         self.assertIn("未知音效", err)

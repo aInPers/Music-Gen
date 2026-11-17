@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Pad" instrument="cello" bus="Music" gain="-7dB" pan="0.2" reverb="0.25" loop="true" loopLen="8" loopCount="3">
+  <send bus="Reverb" amount="0.5"/>
+  <note time="0" dur="4" pitch="C3" vel="0.4"/>
+  <note time="4" dur="4" pitch="A2" vel="0.38"/>
+</track>

@@ -23,6 +23,8 @@ from pathlib import Path
 from . import __version__
 from .analysis import AnalysisError
 from .cli_analyze import register_analyze_command
+from .cli_bus import register_bus_commands
+from .cli_group import register_curve_commands, register_group_commands
 from .cli_effects import register_effect_commands
 from .cli_instruments import RegistryError, register_instrument_commands
 from .synth_cli import register_synth_commands
@@ -30,6 +32,7 @@ from .cli_tracks import TrackEditError, register_track_commands
 from .core.project import ProjectError, create_project, describe, load_project
 from .core.render import render_project
 from .core.wavio import write_wav
+from .export_midi import export_midi, export_midi_split
 from .progress import Progress
 from .samples import fetch, registry
 
@@ -309,9 +312,56 @@ def cmd_render(args: argparse.Namespace) -> int:
         rms = f" RMS {stat.rms:.3f}" if stat.rms else ""
         if stat.kind == "audio":
             print(f"    · {stat.name} [音频] 峰值 {stat.peak:.3f}{rms}{effects}")
+        elif stat.kind == "bus":
+            print(f"    · {stat.name} [总线] 峰值 {stat.peak:.3f}{rms}{effects}")
+        elif stat.kind == "group":
+            print(f"    · {stat.name} [组] 峰值 {stat.peak:.3f}{rms}{effects}")
         else:
             print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} "
                   f"峰值 {stat.peak:.3f}{rms}{effects}")
+    for warning in result.warnings:
+        print(f"  ! {warning}", file=sys.stderr)
+    return 0
+
+
+def cmd_export_midi(args: argparse.Namespace) -> int:
+    project = load_project(args.project)
+    only = _parse_track_selection(project, args.tracks)
+    if only is None and args.tracks:
+        return 1
+    bend_range = args.bend_range
+    try:
+        if args.split:
+            results = export_midi_split(
+                project, args.split, only=only,
+                expand_loop=not args.no_loop, bend_range=bend_range,
+            )
+            folder = Path(args.split).expanduser()
+            print(f"已导出 {len(results)} 个 MIDI 文件到 {folder}")
+            for item in results:
+                channel = next(iter(item.channels.values()), 0)
+                print(f"  {item.path.name:<28} {item.notes:>4} 音符  通道 {channel + 1}")
+            return 0
+        target = args.output or str(Path(args.project).with_suffix(".mid"))
+        result = export_midi(
+            project, target, only=only,
+            expand_loop=not args.no_loop, bend_range=bend_range,
+        )
+    except ValueError as exc:
+        print(f"导出失败：{exc}", file=sys.stderr)
+        return 1
+    print(f"已导出 MIDI：{result.path}")
+    print(
+        f"  {result.tracks} 条音轨 | {result.notes} 个音符 | "
+        f"{result.beats:g} 拍（{result.beats * 60.0 / project.bpm:.2f}s） | "
+        f"分辨率 {480} tpq"
+    )
+    for name, channel in result.channels.items():
+        print(f"    · {name} → 通道 {channel + 1}")
+    if not args.no_loop:
+        loops = [t.name for t in project.tracks if t.loop]
+        if loops:
+            print(f"  循环轨已展开：{'、'.join(loops)}")
     for warning in result.warnings:
         print(f"  ! {warning}", file=sys.stderr)
     return 0
@@ -567,6 +617,10 @@ def build_parser() -> argparse.ArgumentParser:
   python -m musicgen track list demo.musicproj
   python -m musicgen effect types
   python -m musicgen effect add demo.musicproj --track 1 --type echo -p time=450 -p mix=0.3
+  python -m musicgen effect add demo.musicproj --bus Drums --type compressor -p ratio=3.5
+  python -m musicgen bus add demo.musicproj --name Drums --gain -1dB
+  python -m musicgen bus send demo.musicproj --track 1 --to Reverb --amount 0.3
+  python -m musicgen export-midi demo.musicproj -o out.mid --split out/midi
 """,
     )
     parser.add_argument("-V", "--version", action="version", version=f"MusicGen {__version__}")
@@ -618,6 +672,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_bundle = sub.add_parser("bundle", help="把工程用到的采样打包进工程目录")
     p_bundle.add_argument("project")
     p_bundle.set_defaults(func=cmd_bundle)
+
+    p_export = sub.add_parser("export-midi", help="把工程导出成 MIDI（多轨或每轨一个文件）")
+    p_export.add_argument("project", help="*.musicproj 工程文件")
+    p_export.add_argument("-o", "--output", default=None,
+                          help="输出 .mid（默认与工程同名）")
+    p_export.add_argument("--tracks", default=None,
+                          help="只导出部分轨道：1,3,Piano")
+    p_export.add_argument("--no-loop", action="store_true",
+                          help="不展开循环，只导出原始乐句")
+    p_export.add_argument("--bend-range", type=float, default=2.0,
+                          help="弯音范围（半音，默认 ±2）")
+    p_export.add_argument("--split", default=None, metavar="目录",
+                          help="每轨单独导出一个文件到该目录")
+    p_export.set_defaults(func=cmd_export_midi)
 
     p_info = sub.add_parser("info", help="查看工程概要")
     p_info.add_argument("project")
@@ -688,6 +756,9 @@ def build_parser() -> argparse.ArgumentParser:
     register_track_commands(sub)
     register_instrument_commands(sub)
     register_effect_commands(sub)
+    register_bus_commands(sub)
+    register_group_commands(sub)
+    register_curve_commands(sub)
     register_synth_commands(sub)
     register_analyze_command(sub)
     return parser

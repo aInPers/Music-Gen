@@ -76,9 +76,30 @@ def _changes_from(args: argparse.Namespace) -> dict:
         value = getattr(args, key)
         if value is not None:
             changes[key] = value
+    if getattr(args, "bus", None) is not None:
+        text = str(args.bus).strip()
+        # bus=none 表示取消归属，直接进母带
+        changes["bus"] = None if text.lower() in ("none", "-", "") else text
     appeared, value = _optional_beats(args.loop_len, "loopLen")
     if appeared:
         changes["loop_len"] = value
+    if getattr(args, "period", None) is not None:
+        appeared, value = _optional_beats(args.period, "period")
+        if appeared:
+            changes["loop_len"] = value
+    if getattr(args, "repeat", None) is not None:
+        changes["loop_count"] = int(_number(args.repeat, "repeat", 0, 10000))
+    if getattr(args, "offset", None) is not None:
+        appeared, value = _optional_beats(args.offset, "offset")
+        if appeared:
+            changes["offset"] = value or 0.0
+    if getattr(args, "gap", None) is not None:
+        appeared, value = _optional_beats(args.gap, "gap")
+        if appeared:
+            changes["gap"] = value or 0.0
+    if getattr(args, "group", None) is not None:
+        text = str(args.group).strip()
+        changes["group"] = None if text.lower() in ("none", "-", "") else text
     return changes
 
 
@@ -147,6 +168,8 @@ def cmd_track_add(args: argparse.Namespace) -> int:
         file=args.file,
         force=args.force,
     )
+    if getattr(args, "bus", None):
+        te.edit_track(project_path, ref.index, bus=str(args.bus).strip())
     print(f"已新增音轨 {ref.index}. {ref.name}")
     print(f"  文件：{ref.relative}")
     print(f"  乐器：{fetch.display(ref.instrument)} · {args.gain} · pan {args.pan} · 混响 {args.reverb}")
@@ -261,6 +284,8 @@ def _add_track_attrs(parser: argparse.ArgumentParser, *, editing: bool) -> None:
                         help="混响 0…1")
     parser.add_argument("--bpm", default=None,
                         help="逐轨速度覆盖（不给则跟随工程）")
+    parser.add_argument("--bus", default=None,
+                        help="归属总线名；写 none 表示取消归属、直接进母带")
 
 
 def register_track_commands(sub) -> None:
@@ -295,6 +320,14 @@ def register_track_commands(sub) -> None:
     p_edit.add_argument("--loop-len", default=None,
                         help="循环周期（拍）；写 none 可删除该属性")
     p_edit.add_argument("--loop-count", default=None, help="循环次数，0 = 无限")
+    p_edit.add_argument("--period", default=None,
+                        help="循环周期（拍），与 --loop-len 等价")
+    p_edit.add_argument("--repeat", default=None, help="重复次数，与 --loop-count 等价")
+    p_edit.add_argument("--offset", default=None,
+                        help="整轨起点偏移（拍）：同一份谱子错开时间")
+    p_edit.add_argument("--gap", default=None, help="每次循环之间的空拍数")
+    p_edit.add_argument("--group", default=None,
+                        help="归入的轨道组；写 none 表示移出")
     p_edit.add_argument("--transpose", default=None, help="整体移调（半音）")
     p_edit.set_defaults(func=cmd_track_edit)
 

@@ -5,8 +5,10 @@
 MusicGen 是一个**用命令行驱动的多轨编曲渲染工具**：把一个 `*.musicproj`（XML）工程和它的每条音轨（`*.track.xml`）编译成乐器纯音乐 WAV。
 
 - **工程即文本**：一个工程文件 + 每条音轨一个文件，可读、可手改、可进 Git，适合脚本化批量生成。
-- **多轨混音**：每轨独立控制乐器、速度、音量、声像、混响、循环与移调，汇总成一首立体声成品。
-- **音效链**：每轨可串联 11 个音效——立体、回声、淡入淡出、电音、8bit / 4bit / 2bit 位深压缩、均衡、失真、压缩、合唱；参数写在 `<effect>` 里，CLI 与界面都能调，整条链还能存成 `.fx.json` 复用。
+- **多轨混音**：每轨独立控制乐器、速度、音量、声像、混响、循环与移调；可把多轨汇入**编组总线**统一推子与效果链，也能按比例**发送**到混响 / 延迟返回总线，最后走母带效果与归一化。
+- **轨道组与自动化**：可把几条轨道编成组，组上挂效果与曲线；增益、声像、效果参数都能用**多段贝塞尔曲线**随时间变化，曲线可同时作用于轨道与组并叠加；效果支持**只在一段时间生效**。
+- **音效链**：20 个音效——立体、回声、淡入淡出、电音、8bit / 4bit / 2bit、均衡、失真、压缩、合唱、滤波、颤音、自动声像、镶边、相位、磁带、限制、噪声门、混响；可挂在音轨、总线或母带上，整条链还能存成 `.fx.json` 复用。
+- **MIDI 导出**：`export-midi` 把工程写成 SMF type 1（多轨、通道、GM 音色、弯音、循环展开），也可以每轨单独一个文件，直接进 DAW 继续编曲。
 - **三种入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、调音效、管乐器）、桌面界面（钢琴卷帘、分轨卷帘、波形、电平表、试听），以及 **AI Skill**——仓库自带 `Skill/musicgen` 技能包，AI 助手说清需求就能一路做到 WAV，见 [§2.7](#27-ai-skill)。
 - **音频逆向**：`musicgen analyze song.mp3 -o songs/Song` 把成品歌曲拆成人声 / 鼓 / 贝斯 / 钢琴 / 吉他 / 其他，人声整条作为音频轨原样保留，其余分轨用 FFT 转谱、按音色识别乐器；默认「精确回放」按原始起音切立体声块，块外由 `beds/` 补全轨原样填回，**默认状态与原分轨逐样本一致，改某个音符才只影响那一处**，最后写出可继续编辑、可直接渲染的 `*.musicproj`；还能按音区拆层、切分段落、输出 `reverse_brief.json` 交给大模型判断，再用 `--decisions` 回灌换音色/效果。
 - **音色开源**：GM 目录 **128 件真实采样音色**（FluidR3 GM，按需下载，一件 3–5 秒）+ 内置合成鼓组 + 4 件合成音色，另有 `.synth.json` 合成音脚本可自定义；缺采样时自动回退合成器，离线也能渲染。
@@ -47,7 +49,7 @@ py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
 ```
 
-仓库自带 6 个示例工程：
+仓库自带 7 个示例工程：
 
 | 示例 | 内容 |
 | --- | --- |
@@ -57,6 +59,8 @@ py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
 | `examples/band` | 竖笛 + 吉他 + 架子鼓，8 小节 |
 | `examples/moonlight` | 贝多芬《月光》第一乐章 1 分钟钢琴独奏改编（附编曲脚本） |
 | `examples/daybreak` | 原创《晨光》16 小节，钢琴 + 吉他 + 小提琴 + 贝斯 + 鼓，带效果链 |
+| `examples/groupcurve` | 组与曲线示范：鼓组压缩 + 磁带、组增益收尾、hat 声像摆动、pad 低通扫频、回声只在末段 |
+| `examples/mixbus` | 混音示范：鼓组总线（压缩 + 磁带）、音乐总线（EQ + 立体）、混响 / 延迟返回、母带限制 |
 
 ### 2.3 命令行
 
@@ -347,12 +351,57 @@ python -m musicgen samples fetch --instrument 双簧管,失真吉他
 | `drive` | 失真 | `amount` 0–1（0.35）、`tone` 0–1（0.55）、`output` ±24dB（0）、`mix` 0–1（1） |
 | `compressor` | 压缩 | `threshold` −48–0dB（−18）、`ratio` 1–20（3）、`release` 20–1000ms（180）、`makeup` ±18dB（0） |
 | `chorus` | 合唱 | `rate` 0.05–6Hz（0.6）、`depth` 0.5–20ms（6）、`mix` 0–1（0.35）、`voices` 1–3（2） |
+| `filter` | 滤波 | `mode` lowpass/highpass/bandpass、`freq` 20–20000Hz（1200）、`resonance` 0.5–12（0.9）、`lfo_rate` 0–8Hz（0）、`lfo_depth` 0–4oct（0）、`mix` |
+| `tremolo` | 颤音 | `rate` 0.1–20Hz（5）、`depth` 0–1（0.35）、`shape` sine/triangle/square、`stereo` 0–1（0） |
+| `autopan` | 自动声像 | `rate` 0.02–8Hz（0.25）、`depth` 0–1（0.7）、`shape` sine/triangle/square |
+| `flanger` | 镶边 | `rate` 0.02–5Hz（0.35）、`depth` 0.3–10ms（3）、`feedback` 0–0.9（0.45）、`mix` 0–1（0.5） |
+| `phaser` | 相位 | `rate` 0.02–5Hz（0.4）、`depth` 0–1（0.8）、`stages` 2–8（4）、`feedback` 0–0.7（0.3）、`mix` |
+| `tape` | 磁带 | `drive` 0–1（0.35）、`tone` 0–1（0.55）、`wow` 0–1（0.3）、`flutter` 0–1（0.2）、`mix` |
+| `limiter` | 限制 | `ceiling` −12–0dB（−1）、`release` 20–500ms（80）、`lookahead` 1–20ms（4） |
+| `gate` | 噪声门 | `threshold` −70–0dB（−42）、`attack` 0.1–50ms（5）、`release` 10–1000ms（120）、`hold` 0–500ms（40） |
+| `reverb` | 混响 | `size` 0–1（0.5）、`decay` 0.2–8s（2.2）、`tone` 0–1（0.55）、`predelay` 0–200ms（20）、`width` 0–1（0.8）、`mix` 0–1（0.3） |
 
 - 参数只写要改的，其余用注册表默认值；`type` 可写注册键或中文名
 - `8bit` / `4bit` / `2bit` 是「降采样 + 量化」的位深压缩，分别留 256 / 16 / 4 级电平；量化按素材自身峰值做，插入后轨道响度不变
 - 未知类型 / 参数只警告不中断渲染；数值越界会夹到范围内
 - 效果链可存成 `.fx.json` 复用：`effect save` / `check` / `apply [--append]`
 - 新增效果只要在 `core/effects.py` 写一个 `@register_effect` 的 `Effect` 子类，CLI、界面、解析与回写自动接上
+
+#### 总线与发送（已实现）
+
+多轨先汇总到**编组总线**，总线统一走效果链与推子，再进母带；轨道还能按比例**发送**到返回总线（混响、延迟）：
+
+```xml
+<musicproj ...>
+  <bus name="Drums" gain="-1dB">
+    <effect type="compressor" threshold="-20" ratio="3.5"/>
+    <effect type="tape" drive="0.2" mix="0.5"/>
+  </bus>
+  <bus name="Reverb" gain="-5dB">
+    <effect type="reverb" decay="3.2" mix="1"/>
+  </bus>
+  <master>
+    <effect type="limiter" ceiling="-1"/>
+  </master>
+</musicproj>
+```
+
+音轨里写归属与发送：
+
+```xml
+<track name="Kick" instrument="drums" bus="Drums" gain="-3dB">…</track>
+<track name="Piano" instrument="piano" bus="Music">
+  <send bus="Reverb" amount="0.28"/>
+  …
+</track>
+```
+
+- 信号顺序：音符 → 轨道增益 → 轨道混响 → 声像 → 轨道效果 → 归属总线 / 发送 → 总线效果 → 总线推子 → 母带 → 归一化
+- 发送是 **post-fader**：推子拉下来，送到混响的量同比减少
+- 总线之间不再互相发送，结构上不可能出现反馈环；总线按工程里的出现顺序处理
+- 总线可静音；引用了不存在的总线时 `validate` 给警告，渲染仍继续（该轨直接并入母带）
+- 命令行：`bus list / add / set / remove / send / unsend`；`effect add --bus Drums --type compressor` 直接给总线挂效果
+- 完整可跑例子：`examples/mixbus`（鼓组压缩 + 磁带、音乐总线 EQ + 立体、混响与延迟两条返回、母带限制）
 
 ### 3.4 合成音脚本（已实现）
 
@@ -411,14 +460,15 @@ python -m musicgen samples fetch --instrument 双簧管,失真吉他
 **混音与音质**
 
 - [x] `P0` **轨道电平表**：传输条有 L/R 主电平表，分轨卷帘每条轨头也有小电平条（渲染时按 50ms 包络算）
-- [ ] `P1` **总线与母带效果**：现在 11 个效果都是插入效果、只能挂在音轨上；还缺 send 总线、并联压缩与总线 EQ
+- [x] `P1` **总线与母带效果**：编组总线、发送 / 返回（混响、延迟）、母带限制器均已实现，见 §3.3
+- [ ] `P1` **并联压缩**：把一条轨同时送干声与重压缩副本，靠两条总线手动搭，还没有专用控件
 - [ ] `P2` **自定义音色**：导入自己的采样（WAV/AIFF），自定义键位映射、循环点、力度分层与包络，而不只是套用 GM 音色
 - [ ] `P2` **更多音色**：长笛、单簧管、弦乐群、电钢琴、贝斯等
 - [ ] `P2` **MP3 / FLAC 导出**：需要引入编码器依赖
 
 **互操作与批量**
 
-- [ ] `P1` **MIDI 导出**：把工程导回 DAW（导入已有 `import-midi`）
+- [x] `P1` **MIDI 导出**：`export-midi` 输出 SMF type 1（多轨 / 每轨分文件），含 GM 音色、通道与弯音
 - [ ] `P1` **批量分轨导出**：一次导出全部音轨的 stems，而不是逐轨点
 
 ---
