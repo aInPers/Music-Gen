@@ -48,7 +48,7 @@ class ScriptParseTests(unittest.TestCase):
 
     def test_rejects_unknown_type_and_param(self) -> None:
         with self.assertRaises(EffectScriptError):
-            EffectScript.from_dict({"effects": [{"type": "tremolo"}]})
+            EffectScript.from_dict({"effects": [{"type": "space_echo_9000"}]})
         with self.assertRaises(EffectScriptError):
             EffectScript.from_dict({"effects": [{"type": "echo", "nope": 1}]})
         with self.assertRaises(EffectScriptError):
@@ -185,7 +185,7 @@ class EffectScriptCliTests(unittest.TestCase):
 
     def test_cli_rejects_broken_script(self) -> None:
         broken = Path(self._temp.name) / "broken.fx.json"
-        broken.write_text('{"effects": [{"type": "tremolo"}]}', encoding="utf-8")
+        broken.write_text('{"effects": [{"type": "space_echo_9000"}]}', encoding="utf-8")
         result = self._cli("effect", "apply", str(self.project), "--track", "Gtr",
                            "--script", str(broken))
         self.assertEqual(result.returncode, 1)

@@ -792,7 +792,7 @@ def _release_smooth(level: np.ndarray, release: float, sample_rate: int) -> np.n
 class ChorusEffect(Effect):
     KEY = "chorus"
     LABEL = "合唱"
-    ALIASES = ("镶边", "chorus", "flanger")
+    ALIASES = ("合唱效果", "chorus", "multi-voice")
     DESCRIPTION = "两路调制延迟，给单薄的合成音色加厚，也用于还原原曲的宽度与游移。"
     PARAMS = (
         Param("rate", "速率", 0.6, 0.05, 6.0, 0.05, "Hz"),
@@ -824,3 +824,448 @@ class ChorusEffect(Effect):
         wet /= max(1, voices)
         wet = wet.astype(np.float32)
         return _blend(audio, wet, float(self["mix"]))
+
+
+# ---------------------------------------------------------------------------
+# 混音扩展：滤波 / 调制 / 磁带 / 限制 / 门限 / 混响
+# ---------------------------------------------------------------------------
+
+
+def _lfo_curve(shape: str, rate: float, frames: int, sample_rate: int,
+               phase: float = 0.0) -> np.ndarray:
+    """0–1 的确定性 LFO（正弦 / 三角 / 方波），不用随机数。"""
+    t = np.arange(frames, dtype=np.float64) / max(1, sample_rate)
+    angle = 2.0 * math.pi * max(0.0, float(rate)) * t + phase
+    if shape == "triangle":
+        wave = 2.0 / math.pi * np.arcsin(np.sin(angle))
+    elif shape == "square":
+        wave = np.sign(np.sin(angle))
+    else:
+        wave = np.sin(angle)
+    return (0.5 + 0.5 * wave).astype(np.float32)
+
+
+def _stft_filter(audio: np.ndarray, sample_rate: int, gain_at,
+                 block: int = 2048) -> np.ndarray:
+    """短时频域滤波：每帧按时间取一条增益曲线，加窗重叠相加。
+
+    时变滤波（LFO 扫频）用整段 FFT 做不到，这里按帧近似；窗函数用汉宁窗
+    并除以窗平方和，静止参数下可无损重构。
+    """
+    frames = audio.shape[1]
+    if frames == 0:
+        return audio
+    block = min(block, max(64, 1 << max(6, (frames - 1).bit_length())))
+    hop = max(1, block // 2)
+    window = np.hanning(block).astype(np.float32)
+    padded = np.pad(audio, ((0, 0), (0, block)), mode="constant")
+    out = np.zeros((2, frames + block), dtype=np.float64)
+    norm = np.zeros(frames + block, dtype=np.float64)
+    freqs = np.fft.rfftfreq(block, 1.0 / sample_rate)
+    for start in range(0, frames, hop):
+        segment = padded[:, start:start + block] * window
+        spec = np.fft.rfft(segment, axis=1)
+        curve = np.asarray(gain_at(freqs, (start + block / 2.0) / sample_rate), dtype=np.float64)
+        wet = np.fft.irfft(spec * curve, block, axis=1) * window
+        out[:, start:start + block] += wet
+        norm[start:start + block] += window ** 2
+    out /= np.maximum(norm, 1e-8)
+    return out[:, :frames].astype(np.float32)
+
+
+@register_effect
+class FilterEffect(Effect):
+    KEY = "filter"
+    LABEL = "滤波"
+    ALIASES = ("滤波器", "低通", "高通", "带通", "lowpass", "highpass", "bandpass", "lpf", "hpf")
+    DESCRIPTION = "低通 / 高通 / 带通滤波器，可挂 LFO 做自动哇音、渐开与扫频。"
+    PARAMS = (
+        Param("mode", "类型", "lowpass", kind="choice",
+              choices=("lowpass", "highpass", "bandpass")),
+        Param("freq", "截止", 1200.0, 20.0, 20000.0, 10.0, "Hz"),
+        Param("resonance", "共振", 0.9, 0.5, 12.0, 0.1, "Q"),
+        Param("lfo_rate", "LFO 速率", 0.0, 0.0, 8.0, 0.05, "Hz"),
+        Param("lfo_depth", "LFO 深度", 0.0, 0.0, 4.0, 0.05, "oct"),
+        Param("mix", "干湿", 1.0, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        if audio.shape[1] == 0:
+            return audio
+        mode = str(self["mode"])
+        base = max(20.0, float(self["freq"]))
+        resonance = max(0.5, float(self["resonance"]))
+        rate = float(self["lfo_rate"])
+        depth_oct = float(self["lfo_depth"])
+        order = 2
+
+        def gain_at(freqs: np.ndarray, moment: float) -> np.ndarray:
+            sweep = 0.5
+            if rate > 1e-6 and depth_oct > 1e-6:
+                sweep = 0.5 + 0.5 * math.sin(2.0 * math.pi * rate * moment)
+            centre = base * 2.0 ** (depth_oct * (sweep - 0.5) * 2.0)
+            f = np.maximum(freqs, 1.0)
+            if mode == "highpass":
+                curve = 1.0 / np.sqrt(1.0 + (centre / f) ** (2 * order))
+            elif mode == "bandpass":
+                width = 0.55 / max(0.7, resonance * 0.5)
+                curve = np.exp(-0.5 * (np.log2(f / centre) / width) ** 2)
+            else:
+                curve = 1.0 / np.sqrt(1.0 + (f / centre) ** (2 * order))
+            # 共振：在截止点叠一个窄峰，Q 越大峰越高
+            peak = 1.0 + (resonance - 1.0) * 0.55
+            bell = np.exp(-0.5 * (np.log2(f / centre) / 0.10) ** 2)
+            return curve * (1.0 + (peak - 1.0) * bell)
+
+        wet = _stft_filter(audio, sample_rate, gain_at)
+        return _blend(audio, wet, float(self["mix"]))
+
+
+@register_effect
+class TremoloEffect(Effect):
+    KEY = "tremolo"
+    LABEL = "颤音"
+    ALIASES = ("音量颤音", "trem", "amplitude-tremolo")
+    DESCRIPTION = "周期性音量起伏，做老式电钢、弦乐群与迷幻吉他的呼吸感。"
+    PARAMS = (
+        Param("rate", "速率", 5.0, 0.1, 20.0, 0.1, "Hz"),
+        Param("depth", "深度", 0.35, 0.0, 1.0, 0.01),
+        Param("shape", "波形", "sine", kind="choice",
+              choices=("sine", "triangle", "square")),
+        Param("stereo", "左右相差", 0.0, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        depth = float(self["depth"])
+        if frames == 0 or depth <= 1e-4:
+            return audio.copy()
+        shape = str(self["shape"])
+        rate = float(self["rate"])
+        left = _lfo_curve(shape, rate, frames, sample_rate)
+        right = _lfo_curve(shape, rate, frames, sample_rate,
+                           phase=math.pi * float(self["stereo"]))
+        gain = np.empty_like(audio)
+        gain[0] = 1.0 - depth * (1.0 - left)
+        gain[1] = 1.0 - depth * (1.0 - right)
+        return (audio * gain).astype(np.float32, copy=False)
+
+
+@register_effect
+class AutoPanEffect(Effect):
+    KEY = "autopan"
+    LABEL = "自动声像"
+    ALIASES = ("声像游走", "自动声相", "auto-pan", "panning")
+    DESCRIPTION = "声像随时间左右游走，给铺底与琶音增加空间动感。"
+    PARAMS = (
+        Param("rate", "速率", 0.25, 0.02, 8.0, 0.01, "Hz"),
+        Param("depth", "深度", 0.7, 0.0, 1.0, 0.01),
+        Param("shape", "波形", "sine", kind="choice",
+              choices=("sine", "triangle", "square")),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        depth = float(self["depth"])
+        if frames == 0 or depth <= 1e-4:
+            return audio.copy()
+        lfo = _lfo_curve(str(self["shape"]), float(self["rate"]), frames, sample_rate)
+        position = depth * (2.0 * lfo - 1.0)
+        theta = (position.astype(np.float64) + 1.0) * math.pi / 4.0
+        # 等功率声像；乘 √2 让中间位置保持原电平
+        out = np.empty_like(audio)
+        out[0] = audio[0] * (np.cos(theta) * math.sqrt(2.0))
+        out[1] = audio[1] * (np.sin(theta) * math.sqrt(2.0))
+        return out.astype(np.float32, copy=False)
+
+
+@register_effect
+class FlangerEffect(Effect):
+    KEY = "flanger"
+    LABEL = "镶边"
+    ALIASES = ("镶边器", "喷气", "jet", "flange")
+    DESCRIPTION = "短延迟加反馈的梳状扫频，做出喷气式镶边与金属光泽。"
+    PARAMS = (
+        Param("rate", "速率", 0.35, 0.02, 5.0, 0.01, "Hz"),
+        Param("depth", "深度", 3.0, 0.3, 10.0, 0.1, "ms"),
+        Param("feedback", "反馈", 0.45, 0.0, 0.9, 0.01),
+        Param("mix", "干湿", 0.5, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        rate = max(0.01, float(self["rate"]))
+        depth = max(0.1, float(self["depth"])) / 1000.0 * sample_rate
+        feedback = float(self["feedback"])
+        lfo = _lfo_curve("sine", rate, frames, sample_rate)
+        # 基础延迟 0.6ms，调制叠加在上面
+        delay = 0.0006 * sample_rate + depth * lfo.astype(np.float64)
+        index = np.arange(frames, dtype=np.float64)
+        position = index - delay
+        wet = np.empty_like(audio)
+        for channel in range(2):
+            wet[channel] = np.interp(
+                position, index, audio[channel].astype(np.float64), left=0.0
+            )
+        # 反馈：对输出反复再过同一条延迟线（收敛用 3 次近似）
+        stage = wet.copy()
+        acc = wet.copy()
+        for _ in range(3):
+            nxt = np.empty_like(audio)
+            for channel in range(2):
+                nxt[channel] = np.interp(
+                    position, index, stage[channel].astype(np.float64), left=0.0
+                )
+            stage = nxt
+            acc += stage * feedback
+        return _blend(audio, audio + acc * 0.7, float(self["mix"]))
+
+
+@register_effect
+class PhaserEffect(Effect):
+    KEY = "phaser"
+    LABEL = "相位"
+    ALIASES = ("相位器", "移相", "phase-shift")
+    DESCRIPTION = "多级全通滤波串联，扫过频谱形成相位抵消的流动感。"
+    PARAMS = (
+        Param("rate", "速率", 0.4, 0.02, 5.0, 0.01, "Hz"),
+        Param("depth", "深度", 0.8, 0.0, 1.0, 0.01),
+        Param("stages", "级数", 4, 2, 8, 1, "", "int"),
+        Param("feedback", "反馈", 0.3, 0.0, 0.7, 0.01),
+        Param("mix", "干湿", 0.5, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        try:
+            from scipy.signal import lfilter
+        except ImportError:  # 没有 scipy 时保持干声，不中断渲染
+            return audio.copy()
+        rate = max(0.01, float(self["rate"]))
+        depth = float(self["depth"])
+        stages = int(self["stages"])
+        feedback = float(self["feedback"])
+        block = 256
+        out = np.empty_like(audio)
+        for channel in range(2):
+            states = [np.zeros(1, dtype=np.float64) for _ in range(stages)]
+            previous = np.zeros(1, dtype=np.float64)
+            for start in range(0, frames, block):
+                length = min(block, frames - start)
+                segment = audio[channel, start:start + length].astype(np.float64)
+                moment = (start + length / 2.0) / sample_rate
+                sweep = 0.5 + 0.5 * math.sin(2.0 * math.pi * rate * moment)
+                centre = 220.0 * 2.0 ** (depth * (sweep - 0.5) * 5.0)
+                tangent = math.tan(math.pi * min(centre, sample_rate * 0.45) / sample_rate)
+                coefficient = (tangent - 1.0) / (tangent + 1.0)
+                signal = segment + previous * feedback
+                for stage in range(stages):
+                    signal, states[stage] = lfilter(
+                        [coefficient, 1.0], [1.0, coefficient], signal, zi=states[stage]
+                    )
+                previous = signal[-1:] if signal.size else previous
+                out[channel, start:start + length] = signal.astype(np.float32)
+        return _blend(audio, out, float(self["mix"]))
+
+
+@register_effect
+class TapeEffect(Effect):
+    KEY = "tape"
+    LABEL = "磁带"
+    ALIASES = ("磁带饱和", "复古", "vintage", "tape-saturation")
+    DESCRIPTION = "软饱和加高频滚降，再用 wow/flutter 微抖音高，做复古磁带质感。"
+    PARAMS = (
+        Param("drive", "驱动", 0.35, 0.0, 1.0, 0.01),
+        Param("tone", "亮度", 0.55, 0.0, 1.0, 0.01),
+        Param("wow", "抖晃", 0.3, 0.0, 1.0, 0.01),
+        Param("flutter", "颤动", 0.2, 0.0, 1.0, 0.01),
+        Param("mix", "干湿", 1.0, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        drive = float(self["drive"])
+        wet = audio.astype(np.float64)
+        if drive > 1e-3:
+            pre = 1.0 + drive * 5.0
+            # 除以 pre：小信号保持原电平，只有峰值被压——直接除以 tanh(pre) 会让整轨变响
+            wet = np.tanh(wet * pre) / pre
+        # 高频滚降
+        keep = 0.12 + 0.86 * max(0.0, min(1.0, float(self["tone"])))
+        if keep < 0.999:
+            filtered = wet.copy()
+            filtered[:, 1:] = wet[:, 1:] * keep + wet[:, :-1] * (1.0 - keep)
+            wet = filtered
+        # 抖晃：用两个确定性 LFO 调制读取位置
+        wow = float(self["wow"])
+        flutter = float(self["flutter"])
+        if wow > 1e-3 or flutter > 1e-3:
+            slow = _lfo_curve("sine", 0.7, frames, sample_rate).astype(np.float64)
+            fast = _lfo_curve("sine", 7.3, frames, sample_rate).astype(np.float64)
+            drift = (wow * 0.0022 * (slow - 0.5) + flutter * 0.00016 * (fast - 0.5)) * sample_rate
+            index = np.arange(frames, dtype=np.float64)
+            position = index - drift
+            shifted = np.empty_like(wet)
+            for channel in range(2):
+                shifted[channel] = np.interp(position, index, wet[channel], left=0.0)
+            wet = shifted
+        return _blend(audio, wet.astype(np.float32), float(self["mix"]))
+
+
+@register_effect
+class LimiterEffect(Effect):
+    KEY = "limiter"
+    LABEL = "限制"
+    ALIASES = ("限制器", "限幅", "maximizer", "brickwall")
+    DESCRIPTION = "带前视的峰值限制，压住瞬态又尽量不留泵感，适合放母带末级。"
+    PARAMS = (
+        Param("ceiling", "上限", -1.0, -12.0, 0.0, 0.1, "dB"),
+        Param("release", "释放", 80.0, 20.0, 500.0, 5.0, "ms", "int"),
+        Param("lookahead", "前视", 4.0, 1.0, 20.0, 0.5, "ms"),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        ceiling = db_to_gain(float(self["ceiling"]))
+        peak = np.max(np.abs(audio), axis=0).astype(np.float64)
+        look = max(1, int(round(float(self["lookahead"]) * sample_rate / 1000.0)))
+        ahead = peak
+        if look > 2:
+            try:
+                from scipy.ndimage import maximum_filter1d
+
+                window = look | 1  # 奇数窗口，中心对齐
+                padded = np.pad(peak, (0, window // 2), mode="edge")
+                ahead = maximum_filter1d(padded, size=window, mode="nearest")[:frames]
+            except ImportError:
+                # 没有 scipy 时退化成因果峰值（没有前视，瞬态会略硬）
+                ahead = np.maximum.accumulate(peak)
+        target = np.minimum(1.0, ceiling / np.maximum(ahead, 1e-9))
+        released = _release_smooth(target.astype(np.float32),
+                                   max(0.02, float(self["release"]) / 1000.0), sample_rate)
+        # 下降立即跟住峰值，回升交给释放平滑
+        gain = np.minimum(target, released).astype(np.float32)
+        out = (audio * gain[None, :]).astype(np.float32, copy=False)
+        return np.clip(out, -ceiling, ceiling)
+
+
+@register_effect
+class GateEffect(Effect):
+    KEY = "gate"
+    LABEL = "噪声门"
+    ALIASES = ("门限", "降噪门", "噪声门限", "noise-gate", "expander")
+    DESCRIPTION = "低于阈值时收掉底噪，起音与释放可调，适合多轨叠加前的清理。"
+    PARAMS = (
+        Param("threshold", "阈值", -42.0, -70.0, 0.0, 1.0, "dB"),
+        Param("attack", "起音", 5.0, 0.1, 50.0, 0.1, "ms"),
+        Param("release", "释放", 120.0, 10.0, 1000.0, 10.0, "ms", "int"),
+        Param("hold", "保持", 40.0, 0.0, 500.0, 5.0, "ms", "int"),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        if frames == 0:
+            return audio
+        level = np.max(np.abs(audio), axis=0).astype(np.float64)
+        # 2ms 包络，避免单个采样过零就关门
+        envelope = _release_smooth(level.astype(np.float32), 0.002, sample_rate)
+        level_db = 20.0 * np.log10(envelope + 1e-9)
+        target = (level_db > float(self["threshold"])).astype(np.float32)
+        hold = max(0, int(round(float(self["hold"]) * sample_rate / 1000.0)))
+        if hold > 1 and target.max(initial=0.0) > 0:
+            # 保持：开门后延长 hold 个采样，防止密集音符之间抖动
+            opened = np.flatnonzero(target > 0.5)
+            for start in opened:
+                stop = min(frames, start + hold)
+                target[start:stop] = 1.0
+        fast = _release_smooth(target, max(0.0001, float(self["attack"]) / 1000.0), sample_rate)
+        slow = _release_smooth(target, max(0.01, float(self["release"]) / 1000.0), sample_rate)
+        gain = np.where(target > 0.5, fast, slow).astype(np.float32)
+        return (audio * gain[None, :]).astype(np.float32, copy=False)
+
+
+_reverb_cache: dict[tuple, np.ndarray] = {}
+
+
+def _reverb_ir(sample_rate: int, size: float, decay: float, tone: float) -> np.ndarray:
+    """确定性混响脉冲响应：指数衰减噪声 + 高频滚降。"""
+    key = (sample_rate, round(size, 3), round(decay, 3), round(tone, 3))
+    cached = _reverb_cache.get(key)
+    if cached is not None:
+        return cached
+    length = max(64, int(decay * sample_rate))
+    t = np.arange(length, dtype=np.float64) / sample_rate
+    # 房间越小，早期能量越集中，衰减曲线更陡
+    shape = 3.0 + 4.0 * (1.0 - max(0.0, min(1.0, size)))
+    envelope = np.exp(-t * (shape / max(0.05, decay)))
+    rng = np.random.default_rng(90921)  # 固定种子：同一参数每次渲染完全一致
+    ir = np.empty((2, length), dtype=np.float32)
+    window = max(2, int((0.0015 + 0.010 * (1.0 - tone)) * sample_rate))
+    kernel = np.ones(window, dtype=np.float32) / window
+    for channel in range(2):
+        noise = rng.standard_normal(length).astype(np.float32)
+        noise = np.convolve(noise, kernel, mode="same").astype(np.float32)
+        ir[channel] = noise * envelope.astype(np.float32)
+    energy = float(np.sqrt(np.sum(ir ** 2)))
+    if energy > 0:
+        ir /= energy
+    _reverb_cache[key] = ir
+    return ir
+
+
+@register_effect
+class ReverbEffect(Effect):
+    KEY = "reverb"
+    LABEL = "混响"
+    ALIASES = ("混响器", "大厅", "room", "hall", "reverb")
+    DESCRIPTION = "可调房间大小与衰减的卷积混响，既能做发送总线，也能直接挂在轨上。"
+    PARAMS = (
+        Param("size", "房间", 0.5, 0.0, 1.0, 0.01),
+        Param("decay", "衰减", 2.2, 0.2, 8.0, 0.1, "s"),
+        Param("tone", "亮度", 0.55, 0.0, 1.0, 0.01),
+        Param("predelay", "预延迟", 20.0, 0.0, 200.0, 1.0, "ms"),
+        Param("width", "宽度", 0.8, 0.0, 1.0, 0.01),
+        Param("mix", "干湿", 0.3, 0.0, 1.0, 0.01),
+    )
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        audio = _as_stereo(audio)
+        frames = audio.shape[1]
+        mix = float(self["mix"])
+        if frames == 0 or mix <= 1e-4:
+            return audio.copy()
+        ir = _reverb_ir(sample_rate, float(self["size"]), float(self["decay"]),
+                        float(self["tone"]))
+        pre = int(round(float(self["predelay"]) * sample_rate / 1000.0))
+        if pre > 0:
+            ir = np.hstack([np.zeros((2, pre), dtype=np.float32), ir])
+        total = frames + ir.shape[1] - 1
+        size = 1 << max(1, (total - 1).bit_length())
+        wet = np.empty((2, frames), dtype=np.float32)
+        for channel in range(2):
+            spec = np.fft.rfft(audio[channel], size)
+            resp = np.fft.rfft(ir[channel], size)
+            wet[channel] = np.fft.irfft(spec * resp, size)[:frames].astype(np.float32)
+        width = float(self["width"])
+        if width < 0.999:
+            mid = (wet[0] + wet[1]) * 0.5
+            side = (wet[0] - wet[1]) * 0.5 * width
+            wet[0] = mid + side
+            wet[1] = mid - side
+        return _blend(audio, wet, mix)

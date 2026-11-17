@@ -103,7 +103,7 @@ class RegistryTests(_RegistryCase):
         self.assertEqual((source.midi_low, source.midi_high), (60, 96))
         self.assertEqual(source.mirror_count, 4)
         self.assertIn("{name}", source.url_templates[0])
-        self.assertEqual(fetch.instrument_status("flute"), (0, 37))
+        self.assertEqual(fetch.instrument_status("flute", cache_root=Path(tempfile.mkdtemp())), (0, 37))
 
     def test_custom_urls(self) -> None:
         spec = dict(FLUTE)
