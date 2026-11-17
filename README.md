@@ -11,7 +11,7 @@ MusicGen 是一个**用命令行驱动的多轨编曲渲染工具**：把一个 
 - **MIDI 导出**：`export-midi` 把工程写成 SMF type 1（多轨、通道、GM 音色、弯音、循环展开），也可以每轨单独一个文件，直接进 DAW 继续编曲。
 - **三种入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、调音效、管乐器）、桌面界面（钢琴卷帘、分轨卷帘、波形、电平表、试听），以及 **AI Skill**——仓库自带 `Skill/musicgen` 技能包，AI 助手说清需求就能一路做到 WAV，见 [§2.7](#27-ai-skill)。
 - **音频逆向**：`musicgen analyze song.mp3 -o songs/Song` 把成品歌曲拆成人声 / 鼓 / 贝斯 / 钢琴 / 吉他 / 其他，人声整条作为音频轨原样保留，其余分轨用 FFT 转谱、按音色识别乐器；默认「精确回放」按原始起音切立体声块，块外由 `beds/` 补全轨原样填回，**默认状态与原分轨逐样本一致，改某个音符才只影响那一处**，最后写出可继续编辑、可直接渲染的 `*.musicproj`；还能按音区拆层、切分段落、输出 `reverse_brief.json` 交给大模型判断，再用 `--decisions` 回灌换音色/效果。
-- **音色开源**：8 件真实采样乐器 + 内置合成鼓组 + 4 件合成音色，另有 `.synth.json` 合成音脚本可自定义；缺采样时自动回退合成器，离线也能渲染。
+- **音色开源**：GM 目录 **128 件真实采样音色**（FluidR3 GM，按需下载，一件 3–5 秒）+ 内置合成鼓组 + 4 件合成音色，另有 `.synth.json` 合成音脚本可自定义；缺采样时自动回退合成器，离线也能渲染。
 
 ```bat
 python -m musicgen render examples\twinkle\twinkle.musicproj -o twinkle.wav
@@ -38,7 +38,12 @@ py -3 -m pip install -r requirements.txt
 ### 2.2 首次运行
 
 ```bat
-py -3 -m musicgen samples fetch                     :: 下载全部采样（8 件，约 10MB，只需一次）
+py -3 -m musicgen samples fetch                     :: 下载全部「已注册」乐器（初次即常用八件，约 10MB）
+py -3 -m musicgen samples catalog                   :: 查看 GM 目录全部 128 件
+py -3 -m musicgen samples search 萨克斯              :: 找音色
+py -3 -m musicgen samples fetch --instrument oboe   :: 装任意目录乐器（自动注册，3–5 秒）
+py -3 -m musicgen samples fetch --catalog --family 弦乐  :: 整族安装
+py -3 -m musicgen samples fetch --catalog           :: 全部 128 件（约 120MB）
 py -3 -m musicgen validate examples\demo\demo.musicproj
 py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
@@ -302,19 +307,32 @@ mklink /J .workbuddy\skills\musicgen Skill\musicgen
 `bass` 仍用于贝斯音符轨；`vocal` 现在只服务手写工程与 MIDI 导入的人声轨——
 音频分析里人声是原样音频轨，不映射到它。
 
-### 3.2 自行添加乐器（已实现）
+### 3.2 音色目录：128 件按需安装（已实现）
 
-乐器清单是**可编辑的 JSON 注册表**（默认 `~/.musicgen/instruments.json`，可用 `MUSICGEN_INSTRUMENTS` 覆盖）：
+内置一份完整的 **GM 128 音色目录**（`musicgen/samples/gm_catalog.py`），含每件乐器的
+FluidR3 包名、中英文名、别名、建议音域与电平补偿。注册表默认只收录常用的八件，
+其余按需「点名即装」：
 
 ```bat
-python -m musicgen instrument add flute --name 长笛 --gm flute --low 60 --high 96 --gain 8.5
-python -m musicgen samples fetch --instrument flute
+:: 1) 查：按关键词或音色族找
+python -m musicgen samples search 萨克斯
+python -m musicgen samples catalog --family 簧管
+
+:: 2) 装：直接写键名、中文名或别名都能认；下载后自动进注册表
+python -m musicgen samples fetch --instrument alto_sax
+python -m musicgen samples fetch --instrument 双簧管,失真吉他
+
+:: 3) 用：工程里直接写 <track instrument="alto_sax">
 ```
 
-- `--gm` 给 FluidR3 GM 音色包名，自动生成 4 个下载镜像；也可用 `--url` 指自定义地址
-- 支持别名、音域、采样增益、许可与主页信息
-- 界面「编辑 → 乐器注册表…」（`Ctrl+Shift+G`）可添加、删除、恢复默认，改完下拉框立即刷新
+- 未注册的目录乐器也能被 `instrument="oboe"` 直接解析，渲染时有采样就用，不会误判成「未知乐器」
+- 装了采样但没注册的乐器，渲染时会自动补注册，以拿到正确的增益与音域
+- 仍然支持自定义音源：`instrument add mypad --urls "https://…/{name}.{ext}"`，`--gm` 会自动生成 4 个镜像
+- 界面「编辑 → 乐器注册表…」（`Ctrl+Shift+G`）可增删条目，改完下拉框立即刷新
 - 删除条目不会删已下载的采样缓存
+
+`python -m musicgen samples catalog` 会把 128 件按音色族分组列出，并标注
+「就绪 / 部分 / 已注册未下载 / 可下载」。
 
 ### 3.3 音效效果链（已实现）
 

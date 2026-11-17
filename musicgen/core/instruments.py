@@ -9,7 +9,7 @@ from .drums import DrumInstrument, pad_label
 from .notes import midi_to_name
 from .patch import PatchError, PatchInstrument, load_patch
 from .sampler import SampleInstrument, SynthInstrument
-from ..samples import fetch
+from ..samples import fetch, gm_catalog, registry
 
 
 class InstrumentRegistry:
@@ -87,33 +87,60 @@ class InstrumentRegistry:
             return instrument
 
         instrument: SampleInstrument | SynthInstrument
+        program = gm_catalog.lookup(key)
         # 只要有采样就用采样：不限于内置乐器。从原曲分轨切出来的「原曲采样」
         # 也走这条路（键名以 src_ 开头，不在 SOURCES 里），音色才对得上。
         if fetch.available_notes(key, self.cache_root):
+            if key not in fetch.SOURCES and program is not None:
+                # 目录乐器已下载采样但还没进注册表：补注册，才能拿到正确的
+                # 增益 / 音域 / 标题元数据（否则会被当成原曲采样，不做电平补偿）。
+                try:
+                    registry.ensure_from_entry(registry.load(), key)
+                    fetch.reload_registry()
+                except OSError:
+                    pass  # 只读环境：用默认参数渲染，不影响出声
             instrument = SampleInstrument(
                 key,
                 cache_root=self.cache_root,
                 sample_rate=self.sample_rate,
                 warn=self._warn,
-                raw=key not in fetch.SOURCES,
+                raw=key not in fetch.SOURCES and program is None,
             )
         else:
             instrument = SynthInstrument(key, sample_rate=self.sample_rate)
             if key not in self._warned:
-                if key in fetch.SOURCES:
+                if program is not None:
+                    # 目录里有这件乐器，只是本机没下载——这不是「未知乐器」，
+                    # 必须明确告诉调用方该装什么，而不是含糊地换合成器。
+                    self._warn(
+                        f"{program.zh}（{key}）的采样尚未下载，本次用内置合成器占位，"
+                        f"音色与真实{program.zh}差异很大。"
+                        f"运行 `python -m musicgen samples fetch --instrument {key}` "
+                        f"即可获得真实音色（{program.range_label}）"
+                    )
+                elif key in fetch.SOURCES:
                     self._warn(
                         f"{fetch.label(key)}的采样尚未下载，本次使用内置合成器。"
                         f"运行 `python -m musicgen samples fetch --instrument {key}` "
                         f"或在界面点「音源」后可获得真实音色"
                     )
                 else:
+                    similar = gm_catalog.search(key, limit=4)
+                    hint = (
+                        "；目录里相近的音色："
+                        + "、".join(f"{p.zh}({p.key})" for p in similar)
+                        if similar
+                        else ""
+                    )
                     self._warn(
-                        f"未注册的乐器 '{key}'，使用内置合成器。已支持: "
-                        + "、".join(f"{fetch.label(k)}({k})" for k in self.available)
+                        f"未注册的乐器 '{key}'，使用内置合成器。"
+                        f"`python -m musicgen samples search <关键词>` 可挑选真实音色"
+                        f"{hint}"
                     )
                 self._warned.add(key)
         self._cache[key] = instrument
         return instrument
+
 
 
 def note_names(instrument: str, pitches) -> str:

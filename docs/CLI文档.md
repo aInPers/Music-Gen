@@ -5,7 +5,8 @@
 
 **目录**：[调用方式](#1-三种调用方式) · [命令总览](#2-命令总览) · [退出码与环境变量](#3-退出码与环境变量) ·
 [render](#4-render--渲染成-wav) · [validate](#5-validate--只校验) · [info](#6-info--工程概要) ·
-[init](#7-init--生成新工程) · [samples fetch](#8-samples-fetch--下载音源) · [samples list](#9-samples-list--查看音源状态) ·
+[init](#7-init--生成新工程) · [samples fetch](#8-samples-fetch--下载音源) · [samples catalog](#81-samples-catalog--列出-gm-目录) ·
+[samples search](#82-samples-search--按关键词找音色) · [samples list](#9-samples-list--查看音源状态) ·
 [gui](#10-gui--图形界面) · [track / note](#11-track--note--轨道与音符编辑) · [instrument](#12-instrument--乐器注册表) ·
 [effect](#13-effect--音轨效果链) · [analyze](#14-analyze--从音频重建工程) · [synth](#15-synth--合成音脚本) ·
 [工作流](#16-常见工作流) · [报错对照](#17-提示信息对照表) ·
@@ -41,7 +42,9 @@ MusicGen-CLI.bat <命令> [参数]        :: 仓库根目录的包装脚本
 | [`validate`](#5-validate--只校验) | 只解析校验，列出全部错误与警告 | 不需要 |
 | [`info`](#6-info--工程概要) | 打印工程概要（速度、时长、每轨参数） | 不需要 |
 | [`init`](#7-init--生成新工程) | 按模板生成一个新工程 | 不需要 |
-| [`samples fetch`](#8-samples-fetch--下载音源) | 下载乐器采样（多镜像并发） | 联网 |
+| [`samples fetch`](#8-samples-fetch--下载音源) | 下载乐器采样（多镜像并发，支持全量 128 件） | 联网 |
+| [`samples catalog`](#81-samples-catalog--列出-gm-目录) | 列出 GM 目录 128 件音色与下载状态 | 不需要 |
+| [`samples search`](#82-samples-search--按关键词找音色) | 按关键词搜索可用音色 | 不需要 |
 | [`samples list`](#9-samples-list--查看音源状态) | 查看缓存里各乐器齐不齐 | 不需要 |
 | [`gui`](#10-gui--图形界面) | 启动桌面界面 | 打开工程时按需 |
 | [`track`](#11-track--note--轨道与音符编辑) | 新增 / 编辑 / 删除 / 列出音轨 | 不需要 |
@@ -299,42 +302,88 @@ MySong/                          MySong/
 ## 8. `samples fetch` — 下载音源
 
 ```
-python -m musicgen samples fetch [--instrument 名字]... [--all] [--force] [--cache-dir 目录]
+python -m musicgen samples fetch [--instrument 名字]... [--all] [--catalog]
+                                 [--family 族] [--force] [--quiet] [--cache-dir 目录]
 ```
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `--instrument` | 不给就下载全部 | 乐器名，**可重复**也可**逗号分隔**；认注册键也认中文名/别名 |
+| `--instrument` | 不给就下载全部已注册乐器 | 乐器名，**可重复**也可**逗号分隔**；认注册键、中文名、英文名与别名。目录里任意一件都能直接点名，下载后自动注册 |
 | `--all` | 关 | 显式下载全部已注册乐器（等价于不给 `--instrument`） |
+| `--catalog` | 关 | 下载 GM 目录里的全部乐器（128 件，约 120MB） |
+| `--family` | 关 | 与 `--catalog` 连用，只下某个音色族：`钢琴` `色彩打击` `风琴` `吉他` `贝斯` `弦乐` `合奏` `铜管` `簧管` `吹管` `合成主音` `合成铺底` `合成音效` `民族乐器` `打击乐` `音效` |
 | `--force` | 关 | 忽略已有文件重新下载 |
+| `--quiet` | 关 | 每件只输出一行摘要（批量安装时用） |
 | `--cache-dir` | 见 §3.2 | 缓存根目录，实际写到 `<缓存>/<乐器>/` |
 
-可用的名字：
+常用的八件（默认已注册）：
 
 | 注册键 | 中文名 | 其他别名 |
 | --- | --- | --- |
-| `piano` | 钢琴 | `grand piano` |
+| `piano` | 钢琴 | `grand piano` / 大钢琴 |
 | `violin` | 小提琴 | `strings` |
 | `cello` | 大提琴 | `violoncello` |
 | `trumpet` | 小号 | — |
 | `recorder` | 竖笛 | 牧童笛 / 木笛 |
 | `guitar` | 吉他 | 民谣吉他 / 木吉他 / `acoustic` |
+| `bass` | 贝斯 | 电贝斯 / 贝司 / `bass guitar` |
+| `vocal` | 人声 | `voice` / `vox` / 吟唱 |
 | `drums` | 架子鼓 | 鼓 / 鼓组 / 打击乐 / `drum` / `kit`（**内置鼓组，无需下载**） |
+
+**其余 120 件**用 `samples catalog` 浏览、`samples search` 搜索，键名即 FluidR3 包名
+（`flute` `oboe` `clarinet` `french_horn` `viola` `string_ensemble_1` `harpsichord`
+`glockenspiel` `koto` `sitar` `distortion_guitar` `pad_2_warm` …）。
 
 ```bat
 python -m musicgen samples fetch                        :: 八件采样全下（约 10MB）
 python -m musicgen samples fetch --instrument cello      :: 只下大提琴
 python -m musicgen samples fetch --instrument 竖笛,吉他   :: 中文名、逗号分隔
+python -m musicgen samples fetch --instrument 双簧管,失真吉他 :: 目录乐器，自动注册
+python -m musicgen samples fetch --catalog --family 弦乐 :: 整族安装（8 件约 30 秒）
+python -m musicgen samples fetch --catalog --quiet       :: 全部 128 件
 python -m musicgen samples fetch --instrument piano --instrument cello --force :: 重下
 python -m musicgen samples fetch --instrument drums      :: 内置鼓组，只会回一句「不需要下载」
 ```
 
 下载行为：
 
-* 8 线程并发，每个文件**依次尝试 4 个镜像**（jsDelivr → fastly → gcore → raw.githubusercontent），单镜像 20s 超时后换下一个；
-* 整体 300s 预算，超时后不再提交新任务；
+* 8 线程并发，每个文件**依次尝试 5 个镜像**（`gh-proxy.com` → gcore → jsDelivr → fastly → raw.githubusercontent），单镜像 20s 超时后换下一个；
+* 首个镜像 `gh-proxy.com` 是国内实测最快的线路（约 0.3s/文件），全量 128 件约 8 分钟；
+* 整体 300s 预算，超时后不再提交新任务（单件乐器一般 3–6s，远低于预算）；
 * 已存在且大于 512 字节的文件直接跳过，所以重复执行几乎不花钱（缓存命中时 `耗时 0.0s`）；
 * 每个乐器下载完会在目录里写 `manifest.json`（来源、许可、文件清单、时间）。
+
+### 8.1 `samples catalog` — 列出 GM 目录
+
+```
+python -m musicgen samples catalog [--family 族] [--json] [--cache-dir 目录]
+```
+
+按音色族分组列出 128 件乐器，每行给出注册键、中文名、建议音域与本机状态
+（`就绪` / `部分 n/m` / `已注册未下载` / `可下载`）；`*` 表示已进注册表，可直接在音轨里用。
+`--json` 输出结构化数据，字段为
+`key / gm / zh / en / family / range_label / midi_low / midi_high / registered / have / want / ready`。
+
+```bat
+python -m musicgen samples catalog
+python -m musicgen samples catalog --family 簧管
+python -m musicgen samples catalog --json > catalog.json
+```
+
+### 8.2 `samples search` — 按关键词找音色
+
+```
+python -m musicgen samples search 关键词... [--limit 20] [--cache-dir 目录]
+```
+
+在 128 件目录里按中文名、英文名、包名、别名、音色族匹配，返回键名、音色族、音域、
+注册与下载状态。**找不到想要的音色时先跑它**，比随手换合成音有效得多。
+
+```bat
+python -m musicgen samples search 萨克斯
+python -m musicgen samples search 温暖
+python -m musicgen samples search 民族
+```
 
 输出范例（缓存已满）：
 

@@ -34,7 +34,7 @@ from .core.render import render_project
 from .core.wavio import write_wav
 from .export_midi import export_midi, export_midi_split
 from .progress import Progress
-from .samples import fetch
+from .samples import fetch, registry
 
 
 def _setup_console() -> None:
@@ -247,6 +247,32 @@ def cmd_render(args: argparse.Namespace) -> int:
         f"{project.sample_rate}Hz | 时长 {_fmt_seconds(project.compute_length_seconds())}"
     )
 
+    # 音色预检：缺采样的乐器会被合成器顶替，音色完全不对，必须在渲染前说清楚
+    pending: list[tuple[str, str, str]] = []
+    seen_keys: set[str] = set()
+    for track in project.tracks:
+        if not track.notes or getattr(track, "patch_path", None):
+            continue
+        key = fetch.resolve(track.instrument)
+        if key in seen_keys or key in fetch.BUILTIN or key in fetch.SYNTHS:
+            continue
+        seen_keys.add(key)
+        have, want = fetch.instrument_status(key, args.cache_dir)
+        if want and have >= want:
+            continue
+        program = fetch.gm_catalog.lookup(key)
+        if program is not None:
+            pending.append((track.name, key, program.zh))
+        elif key in fetch.SOURCES:
+            pending.append((track.name, key, fetch.label(key)))
+    if pending:
+        keys = "、".join(sorted({key for _, key, _ in pending}))
+        print("\n  音色检查：以下乐器采样未就绪，本次会用内置合成器占位（音色与真实乐器差异很大）", file=sys.stderr)
+        for track_name, key, label in pending:
+            print(f"    · 音轨「{track_name}」用 {label}（{key}）", file=sys.stderr)
+        print(f"  安装真实音色：python -m musicgen samples fetch --instrument {keys}", file=sys.stderr)
+        print("", file=sys.stderr)
+
     progress = _Progress(enabled=not args.quiet)
     started = time.time()
     try:
@@ -391,53 +417,152 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_samples_fetch(args: argparse.Namespace) -> int:
     instruments: list[str] = []
-    if args.all or not args.instrument:
+    if getattr(args, "catalog", False):
+        # 全量目录（可按音色族筛选）：这是「没有现成乐器就去装一件」的入口
+        instruments = [p.key for p in fetch.gm_catalog.by_family(args.family)]
+        if not instruments:
+            print(f"音色族 '{args.family}' 没有匹配的乐器", file=sys.stderr)
+            return 1
+    elif args.all or not args.instrument:
         instruments = list(fetch.SOURCES)
     else:
         for raw in args.instrument:
             for part in raw.split(","):
+                if not part.strip():
+                    continue
                 key = fetch.resolve(part)
-                if part.strip() and key not in instruments:
+                if key not in instruments:
                     instruments.append(key)
+
+    total = len(instruments)
     exit_code = 0
-    for instrument in instruments:
-        if instrument in fetch.BUILTIN:
-            print(f"{fetch.label(instrument)}（{instrument}）：{fetch.BUILTIN[instrument]}，不需要下载。")
+    failures: list[tuple[str, str]] = []
+    for index, instrument in enumerate(instruments, start=1):
+        key = fetch.resolve(instrument)
+        if key in fetch.BUILTIN:
+            print(f"{fetch.label(key)}（{key}）：{fetch.BUILTIN[key]}，不需要下载。")
             continue
-        source = fetch.SOURCES.get(instrument)
+        source = fetch.SOURCES.get(key)
         if source is None:
-            print(
-                "未知乐器："
-                + instrument
-                + "（可选："
-                + "、".join(f"{fetch.label(k)}({k})" for k in fetch.instrument_keys())
-                + "）",
-                file=sys.stderr,
-            )
-            exit_code = 1
-            continue
-        print(f"下载 {fetch.display(instrument)} — {source.title}")
-        print(f"  许可：{source.license}")
-        print(f"  音域：{source.note_range_label or ''} 来源：{source.homepage}")
+            # 目录里有就能下：fetch_instrument 会自动完成注册
+            program = fetch.gm_catalog.lookup(key)
+            if program is None:
+                similar = fetch.search(key)
+                hint = ("；相近音色：" + "、".join(f"{p.zh}({p.key})" for p in similar[:5])) if similar else ""
+                print(f"未知乐器：{key}{hint}（`samples catalog` 可查全部 128 件）", file=sys.stderr)
+                failures.append((key, "未知乐器"))
+                exit_code = 1
+                continue
+            label = f"{program.zh}({program.key})"
+            title = program.title
+            license_text = "FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）"
+            range_text = program.range_label
+            homepage = "https://github.com/gleitz/midi-js-soundfonts"
+        else:
+            label = fetch.display(key)
+            title = source.title
+            license_text = source.license
+            range_text = source.note_range_label
+            homepage = source.homepage
+
+        prefix = f"[{index}/{total}] " if total > 1 else ""
+        print(f"{prefix}下载 {label} — {title}")
+        if not args.quiet:
+            print(f"  许可：{license_text}")
+            print(f"  音域：{range_text or ''} 来源：{homepage}")
         done = {"n": 0}
 
-        def progress(count: int, total: int, note: str) -> None:
+        def progress(count: int, note_total: int, note: str) -> None:
             done["n"] = count
-            if count % 8 == 0 or count == total:
-                print(f"  {count}/{total} … {note}", flush=True)
+            if args.quiet:
+                return
+            if count % 8 == 0 or count == note_total:
+                print(f"  {count}/{note_total} … {note}", flush=True)
 
         try:
             report = fetch.fetch_instrument(
-                instrument, cache_root=args.cache_dir, force=args.force, progress=progress
+                key, cache_root=args.cache_dir, force=args.force, progress=progress
             )
         except fetch.FetchError as exc:
             print(f"下载失败：{exc}", file=sys.stderr)
+            failures.append((key, str(exc)))
             exit_code = 1
             continue
-        print(report.summary())
+        if args.quiet:
+            print(f"  {len(report.downloaded)} 新 / {len(report.skipped)} 已有 / "
+                  f"{len(report.failed)} 失败 · {report.elapsed:.1f}s")
+        else:
+            print(report.summary())
         if not report.ok:
+            failures.append((key, f"{len(report.failed)} 个音符失败"))
             exit_code = 1
+
+    if total > 1:
+        ok = total - len(failures)
+        print(f"\n合计：{ok}/{total} 件就绪" + (f"，{len(failures)} 件失败" if failures else ""))
+        for key, reason in failures[:10]:
+            print(f"  失败 {key}: {reason}", file=sys.stderr)
     return exit_code
+
+
+def cmd_samples_catalog(args: argparse.Namespace) -> int:
+    """列出 GM 目录里的全部（或某个音色族的）乐器及其本机状态。"""
+    rows = fetch.catalog(family=args.family, cache_root=args.cache_dir)
+    if not rows:
+        print(f"音色族 '{args.family}' 没有匹配的乐器", file=sys.stderr)
+        families = "、".join(fetch.gm_catalog.FAMILIES)
+        print(f"可选音色族：{families}", file=sys.stderr)
+        return 1
+    if args.json:
+        import json
+
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+
+    registered = [r for r in rows if r["registered"]]
+    ready = [r for r in rows if r["ready"]]
+    print(f"GM 目录：{len(rows)} 件（已注册 {len(registered)} · 采样就绪 {len(ready)}）")
+    if args.family:
+        print(f"筛选音色族：{args.family}")
+    current_family = ""
+    for row in rows:
+        if row["family"] != current_family:
+            current_family = row["family"]
+            print(f"\n{current_family}")
+        if row["ready"]:
+            state = "就绪"
+        elif row["have"]:
+            state = f"部分 {row['have']}/{row['want']}"
+        elif row["registered"]:
+            state = "已注册未下载"
+        else:
+            state = "可下载"
+        mark = "*" if row["registered"] else " "
+        print(f" {mark} {row['key']:<22} {row['zh']:<10} {row['range_label']:<22} {state}")
+    print("\n* = 已进注册表，可直接在音轨里用；其余用 `samples fetch --instrument <键名>` 安装")
+    return 0
+
+
+def cmd_samples_search(args: argparse.Namespace) -> int:
+    """按关键词在 128 件目录里找音色，找不到时可据此换近似的真实采样。"""
+    keyword = " ".join(args.keyword).strip()
+    results = fetch.search(keyword, limit=args.limit)
+    if not results:
+        print(f"目录里没有与「{keyword}」相关的乐器。", file=sys.stderr)
+        print("可用 `samples catalog` 浏览全部 128 件，或按音色族筛选：", file=sys.stderr)
+        print("  " + "、".join(fetch.gm_catalog.FAMILIES), file=sys.stderr)
+        return 1
+    registered = {e["key"] for e in registry.load()}
+    print(f"「{keyword}」命中 {len(results)} 件：")
+    for program in results:
+        have, want = fetch.instrument_status(program.key, args.cache_dir)
+        state = "就绪" if want and have >= want else ("部分" if have else "未下载")
+        reg = "已注册" if program.key in registered else "未注册"
+        print(f"  {program.key:<22} {program.zh:<10} {program.family:<8} "
+              f"{program.range_label:<22} [{reg}·{state}]")
+    print("\n安装：python -m musicgen samples fetch --instrument <键名>")
+    return 0
+
 
 
 def cmd_samples_list(args: argparse.Namespace) -> int:
@@ -480,8 +605,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""示例:
   python -m musicgen gui
   python -m musicgen render examples/demo/demo.musicproj -o out.wav
-  python -m musicgen samples fetch                    # 下载全部乐器音源
+  python -m musicgen samples fetch                    # 下载常用八件音源
+  python -m musicgen samples catalog                  # 查看 GM 目录全部 128 件
+  python -m musicgen samples search 萨克斯             # 按关键词找音色
   python -m musicgen samples fetch --instrument cello # 只下大提琴
+  python -m musicgen samples fetch --instrument oboe  # 目录乐器，自动注册
+  python -m musicgen samples fetch --catalog --family 弦乐  # 整族安装
   python -m musicgen track add demo.musicproj --name Guitar --instrument guitar
   python -m musicgen note add demo.musicproj --track Guitar --time 0 --dur 1 --pitch C4
   python -m musicgen track edit demo.musicproj --track 1 --gain -4dB --no-loop
@@ -576,19 +705,49 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_samples = sub.add_parser("samples", help="音源管理与下载")
     samples_sub = p_samples.add_subparsers(dest="action", required=True)
-    p_fetch = samples_sub.add_parser("fetch", help="下载乐器采样")
+    p_fetch = samples_sub.add_parser(
+        "fetch",
+        help="下载乐器采样（支持 GM 目录里的全部 128 件）",
+        description="下载乐器采样。点名目录里的任意乐器会自动注册后下载；"
+                    "--catalog 一次装齐全部 128 件（可按音色族分批）。",
+    )
     p_fetch.add_argument(
         "--instrument", action="append", default=None,
-        help="乐器名，可重复或逗号分隔（piano/cello/violin/trumpet，也认中文名）；"
-             "不给则下载全部",
+        help="乐器名，可重复或逗号分隔（piano/cello/flute/sitar…，也认中文名与别名）；"
+             "不给则下载全部已注册乐器",
     )
     p_fetch.add_argument("--all", action="store_true", help="下载全部已注册乐器")
+    p_fetch.add_argument("--catalog", action="store_true",
+                         help="下载 GM 目录里的全部乐器（128 件，约 120MB）")
+    p_fetch.add_argument("--family", default=None,
+                         help="与 --catalog 连用，只下某个音色族（如 弦乐、铜管、吹管）")
     p_fetch.add_argument("--force", action="store_true", help="忽略缓存重新下载")
+    p_fetch.add_argument("--quiet", action="store_true", help="只输出每件一行摘要")
     add_cache(p_fetch)
     p_fetch.set_defaults(func=cmd_samples_fetch)
-    p_list = samples_sub.add_parser("list", help="查看音源状态")
+    p_list = samples_sub.add_parser("list", help="查看已注册音源状态")
     add_cache(p_list)
     p_list.set_defaults(func=cmd_samples_list)
+    p_catalog = samples_sub.add_parser(
+        "catalog",
+        help="列出 GM 目录全部 128 件音色及本机状态",
+        description="列出 FluidR3 GM 目录里的乐器、音域与下载状态。"
+                    "找不到想要的音色时，先用 search / catalog 找近似音色，再 fetch 安装。",
+    )
+    p_catalog.add_argument("--family", default=None, help="只看某个音色族（如 簧管、民族乐器）")
+    p_catalog.add_argument("--json", action="store_true", help="输出 JSON（便于脚本处理）")
+    add_cache(p_catalog)
+    p_catalog.set_defaults(func=cmd_samples_catalog)
+    p_search = samples_sub.add_parser(
+        "search",
+        help="按关键词搜索可用音色",
+        description="在 128 件目录里按中英文名、别名、音色族搜索，用于「想用的音色没有现成乐器」时挑替代品。",
+    )
+    p_search.add_argument("keyword", nargs="+", help="关键词，如 萨克斯 / warm / 民族")
+    p_search.add_argument("--limit", type=int, default=20, help="最多显示几条（默认 20）")
+    add_cache(p_search)
+    p_search.set_defaults(func=cmd_samples_search)
+
 
     p_gui = sub.add_parser("gui", help="启动图形界面")
     p_gui.add_argument("project", nargs="?", default=None, help="启动时打开的工程")
