@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Piano" instrument="piano" bus="Music" gain="-6dB" pan="-0.15" loop="true" loopLen="8" loopCount="3">
+  <send bus="Reverb" amount="0.28"/>
+  <send bus="Delay" amount="0.14"/>
+  <note time="0" dur="2" pitch="E4,G4,B4,D5" vel="0.52"/>
+  <note time="2" dur="2" pitch="D4,G4,B4" vel="0.46"/>
+  <note time="4" dur="2" pitch="C4,E4,A4" vel="0.5"/>
+  <note time="6" dur="2" pitch="F4,A4,C5" vel="0.45"/>
+</track>

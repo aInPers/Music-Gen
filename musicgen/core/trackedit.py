@@ -64,6 +64,7 @@ _TRACK_ATTRS: dict[str, tuple[str, Any]] = {
     "loop": ("loop", lambda v: "true" if v else None),
     "mute": ("mute", lambda v: "true" if v else None),
     "solo": ("solo", lambda v: "true" if v else None),
+    "bus": ("bus", lambda v: str(v).strip()),
 }
 
 
@@ -690,4 +691,309 @@ def delete_note(project_path: str | Path, selector: str | int, index: int) -> di
         siblings[position - 1].tail = element.tail
     root.remove(element)
     _write(tree, track.path)  # type: ignore[arg-type] - 上面已保证 path 非空
+    return attributes
+
+
+# ---------------------------------------------------------------------------
+# 编组总线与发送
+# ---------------------------------------------------------------------------
+
+
+def _project_tree(project_path: str | Path) -> tuple[Path, ET.ElementTree, ET.Element]:
+    path = Path(project_path).expanduser().resolve()
+    tree = _tree(path)
+    return path, tree, tree.getroot()
+
+
+def find_bus_element(root: ET.Element, name: str) -> ET.Element | None:
+    wanted = str(name).strip().lower()
+    for element in root:
+        if element.tag == "bus" and (element.get("name") or "").strip().lower() == wanted:
+            return element
+    return None
+
+
+def add_bus(
+    project_path: str | Path,
+    name: str,
+    *,
+    gain_db: float | None = None,
+    mute: bool = False,
+) -> str:
+    """新增一条总线（插在第一个 <track> 之前）。"""
+    path, tree, root = _project_tree(project_path)
+    name = str(name).strip()
+    if not name:
+        raise TrackEditError("总线名不能为空")
+    if find_bus_element(root, name) is not None:
+        raise TrackEditError(f"总线「{name}」已存在")
+    attributes = {"name": name}
+    if gain_db:
+        attributes["gain"] = f"{float(gain_db):+g}dB"
+    if mute:
+        attributes["mute"] = "true"
+    element = ET.Element("bus", attributes)
+    children = list(root)
+    position = next(
+        (i for i, child in enumerate(children) if child.tag == "track"), len(children)
+    )
+    indent = _indent_of(root, children, position)
+    element.tail = "\n" + indent
+    root.insert(position, element)
+    _write(tree, path)
+    return name
+
+
+def set_bus(
+    project_path: str | Path,
+    name: str,
+    *,
+    gain_db: float | None = None,
+    mute: bool | None = None,
+    rename: str | None = None,
+) -> list[tuple[str, str, str]]:
+    """改总线推子 / 静音 / 名称；改名会同步所有引用。"""
+    path, tree, root = _project_tree(project_path)
+    element = find_bus_element(root, name)
+    if element is None:
+        raise TrackEditError(f"找不到总线「{name}」")
+    applied: list[tuple[str, str, str]] = []
+    if gain_db is not None:
+        old = element.get("gain") or "（默认）"
+        element.set("gain", f"{float(gain_db):+g}dB")
+        applied.append(("gain", old, element.get("gain", "")))
+    if mute is not None:
+        old = element.get("mute") or "false"
+        if mute:
+            element.set("mute", "true")
+        else:
+            element.attrib.pop("mute", None)
+        applied.append(("mute", old, "true" if mute else "false"))
+    if rename is not None:
+        new_name = str(rename).strip()
+        if not new_name:
+            raise TrackEditError("新总线名不能为空")
+        if find_bus_element(root, new_name) is not None:
+            raise TrackEditError(f"总线「{new_name}」已存在")
+        old = element.get("name") or ""
+        element.set("name", new_name)
+        applied.append(("name", old, new_name))
+    _write(tree, path)
+    if rename:
+        _retarget_bus(path, name, str(rename).strip())
+    return applied
+
+
+def _retarget_bus(project_path: Path, old: str, new: str) -> None:
+    """把工程与各音轨文件里指向 *old* 的 bus / send 改到 *new*。"""
+    project = _load(project_path)
+    for track in project.tracks:
+        if track.path is None:
+            continue
+        tree = _tree(track.path)
+        root = tree.getroot()
+        changed = False
+        if (root.get("bus") or "").strip().lower() == old.strip().lower():
+            root.set("bus", new)
+            changed = True
+        for element in [el for el in root if el.tag == "send"]:
+            if (element.get("bus") or "").strip().lower() == old.strip().lower():
+                element.set("bus", new)
+                changed = True
+        if changed:
+            _write(tree, track.path)
+
+
+def remove_bus(
+    project_path: str | Path,
+    name: str,
+    *,
+    force: bool = False,
+) -> list[str]:
+    """删除总线。仍被引用时默认拒绝；``force=True`` 会一并清掉引用。"""
+    path, tree, root = _project_tree(project_path)
+    element = find_bus_element(root, name)
+    if element is None:
+        raise TrackEditError(f"找不到总线「{name}」")
+    project = _load(project_path)
+    wanted = name.strip().lower()
+    users = [t.name for t in project.tracks
+             if (t.bus or "").strip().lower() == wanted]
+    senders = [t.name for t in project.tracks
+               if any(s.bus.strip().lower() == wanted for s in t.sends)]
+    if (users or senders) and not force:
+        detail = "；".join(
+            part for part in (
+                f"归属轨道：{'、'.join(users)}" if users else "",
+                f"发送来源：{'、'.join(senders)}" if senders else "",
+            ) if part
+        )
+        raise TrackEditError(f"总线「{name}」仍在使用（{detail}），先改路由或用 --force 强制删除")
+    cleared: list[str] = []
+    if users or senders:
+        for track in project.tracks:
+            if track.path is None:
+                continue
+            track_tree = _tree(track.path)
+            track_root = track_tree.getroot()
+            changed = False
+            if (track_root.get("bus") or "").strip().lower() == wanted:
+                track_root.attrib.pop("bus", None)
+                changed = True
+            for send_el in [el for el in track_root if el.tag == "send"]:
+                if (send_el.get("bus") or "").strip().lower() == wanted:
+                    track_root.remove(send_el)
+                    changed = True
+            if changed:
+                _write(track_tree, track.path)
+                cleared.append(track.name)
+    children = list(root)
+    position = children.index(element)
+    if position > 0 and element.tail:
+        children[position - 1].tail = element.tail
+    root.remove(element)
+    _write(tree, path)
+    return cleared
+
+
+def set_send(
+    project_path: str | Path,
+    selector: str | int,
+    bus_name: str,
+    amount: float,
+) -> str:
+    """设置轨道送往某总线的发送量（同目标已存在则覆盖）。"""
+    tree, root, track = _note_tree(project_path, selector)
+    amount = max(0.0, min(1.0, float(amount)))
+    target = find_bus_element_of_project(project_path, bus_name)
+    if target is None:
+        raise TrackEditError(f"找不到总线「{bus_name}」")
+    existing = None
+    for element in [el for el in root if el.tag == "send"]:
+        if (element.get("bus") or "").strip().lower() == bus_name.strip().lower():
+            existing = element
+            break
+    if existing is not None:
+        existing.set("amount", f"{amount:g}")
+    else:
+        element = ET.Element("send", {"bus": bus_name.strip(), "amount": f"{amount:g}"})
+        children = list(root)
+        position = next(
+            (i for i, child in enumerate(children) if child.tag in ("effect", "audio", "note")),
+            len(children),
+        )
+        indent = _indent_of(root, children, position)
+        element.tail = "\n" + indent
+        root.insert(position, element)
+    _write(tree, track.path)  # type: ignore[arg-type] - _note_tree 已保证非空
+    return f"{track.name} → {bus_name} {amount:g}"
+
+
+def remove_send(project_path: str | Path, selector: str | int, bus_name: str) -> str:
+    tree, root, track = _note_tree(project_path, selector)
+    for element in [el for el in root if el.tag == "send"]:
+        if (element.get("bus") or "").strip().lower() == bus_name.strip().lower():
+            root.remove(element)
+            _write(tree, track.path)  # type: ignore[arg-type]
+            return f"{track.name} 不再发送到 {bus_name}"
+    raise TrackEditError(f"音轨「{track.name}」没有发往「{bus_name}」的发送")
+
+
+def find_bus_element_of_project(project_path: str | Path, name: str) -> ET.Element | None:
+    _, _, root = _project_tree(project_path)
+    return find_bus_element(root, name)
+
+
+def _bus_effect_element(project_path: str | Path, bus_name: str):
+    path, tree, root = _project_tree(project_path)
+    bus_el = find_bus_element(root, bus_name)
+    if bus_el is None:
+        raise TrackEditError(f"找不到总线「{bus_name}」")
+    return path, tree, root, bus_el
+
+
+def add_bus_effect(
+    project_path: str | Path,
+    bus_name: str,
+    effect_type: str,
+    params: dict[str, Any] | None = None,
+) -> EffectSpec:
+    """给总线追加一个效果，写入工程文件的 <bus> 里。"""
+    key = resolve_effect(effect_type)
+    if key is None:
+        raise TrackEditError(f"未知音效「{effect_type}」。可用：{effect_types_text()}")
+    values, problems = normalize_effect_params(key, params or {}, strict=True)
+    if problems:
+        raise TrackEditError("；".join(problems))
+    spec = EffectSpec(type=key, params=values)
+
+    path, tree, root, bus_el = _bus_effect_element(project_path, bus_name)
+    element = ET.Element("effect", spec.to_attrs())
+    existing = [child for child in bus_el if child.tag == "effect"]
+    if existing:
+        indent = _indent_of(bus_el, existing, len(existing))
+        element.tail = existing[-1].tail if existing[-1].tail else "\n" + indent
+        bus_el.append(element)
+    else:
+        parent_indent = _indent_of(root, list(root), list(root).index(bus_el))
+        inner = parent_indent + "  "
+        element.tail = "\n" + parent_indent
+        bus_el.text = "\n" + inner
+        bus_el.append(element)
+    _write(tree, path)
+    return spec
+
+
+def set_bus_effect(
+    project_path: str | Path,
+    bus_name: str,
+    index: int,
+    **changes: Any,
+) -> list[tuple[str, str, str]]:
+    """改总线第 *index* 个效果（1-based）的参数。"""
+    path, tree, _root, bus_el = _bus_effect_element(project_path, bus_name)
+    effects = [child for child in bus_el if child.tag == "effect"]
+    if not 1 <= index <= len(effects):
+        raise TrackEditError(f"效果序号超出范围 1-{len(effects)}：{index}")
+    element = effects[index - 1]
+    key = resolve_effect(element.get("type"))
+    if key is None:
+        raise TrackEditError(f"总线上的第 {index} 个效果类型无效：{element.get('type')}")
+    values = {k: v for k, v in changes.items() if v is not None}
+    normalized, problems = normalize_effect_params(key, values, strict=True)
+    if problems:
+        raise TrackEditError("；".join(problems))
+    cls = effect_class(key)
+    applied: list[tuple[str, str, str]] = []
+    for name, value in changes.items():
+        if value is not None:
+            continue
+        if element.get(name) is not None:
+            old = element.get(name, "")
+            element.attrib.pop(name, None)
+            applied.append((name, old, "（删除）"))
+    for name, value in normalized.items():
+        old = element.get(name) or "（默认）"
+        param = cls.param(name)
+        text = param.format(value) if param is not None else str(value)
+        element.set(name, text)
+        applied.append((name, old, text))
+    _write(tree, path)
+    return applied
+
+
+def remove_bus_effect(project_path: str | Path, bus_name: str, index: int) -> dict[str, str]:
+    """删除总线第 *index* 个效果（1-based），返回被删属性。"""
+    path, tree, _root, bus_el = _bus_effect_element(project_path, bus_name)
+    effects = [child for child in bus_el if child.tag == "effect"]
+    if not 1 <= index <= len(effects):
+        raise TrackEditError(f"效果序号超出范围 1-{len(effects)}：{index}")
+    element = effects[index - 1]
+    attributes = dict(element.attrib)
+    children = list(bus_el)
+    position = children.index(element)
+    if position > 0 and element.tail:
+        children[position - 1].tail = element.tail
+    bus_el.remove(element)
+    _write(tree, path)
     return attributes

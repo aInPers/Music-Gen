@@ -72,6 +72,17 @@ def cmd_effect_types(_args: argparse.Namespace) -> int:
 
 def cmd_effect_list(args: argparse.Namespace) -> int:
     project = load_project(_project_path(args))
+    if getattr(args, "bus", None):
+        bus = project.find_bus(args.bus)
+        if bus is None:
+            raise TrackEditError(f"找不到总线「{args.bus}」")
+        print(f"工程 {project.name} · 总线「{bus.name}」音效链")
+        if not bus.effects:
+            print("      （无音效）")
+            return 0
+        for order, spec in enumerate(bus.effects, 1):
+            print(f"      {order}. {spec.label()} {spec.type}  {spec.summary()}")
+        return 0
     if args.track:
         index, track = te.find_track(project, args.track)
         rows = [(index + 1, track)]
@@ -95,6 +106,14 @@ def cmd_effect_list(args: argparse.Namespace) -> int:
 
 def cmd_effect_add(args: argparse.Namespace) -> int:
     params = _parse_pairs(args.param)
+    if getattr(args, "bus", None):
+        spec = te.add_bus_effect(_project_path(args), args.bus, args.type, params)
+        print(f"已为总线「{args.bus}」添加音效：{spec.label()}（{spec.type}）")
+        print(f"  参数：{spec.summary()}")
+        bus = load_project(_project_path(args)).find_bus(args.bus)
+        if bus is not None:
+            print(f"  当前效果链：{' → '.join(s.label() for s in bus.effects)}")
+        return 0
     ref, spec = te.add_effect(_project_path(args), args.track, args.type, params)
     print(f"已为音轨 {ref.index}. {ref.name} 添加音效：{spec.label()}（{spec.type}）")
     print(f"  参数：{spec.summary()}")
@@ -109,6 +128,12 @@ def cmd_effect_set(args: argparse.Namespace) -> int:
     params = _parse_pairs_with_none(args.param)
     if not params:
         raise TrackEditError("没有指定要修改的参数（用 -p 键=值，例如 -p feedback=0.5）")
+    if getattr(args, "bus", None):
+        applied = te.set_bus_effect(_project_path(args), args.bus, args.index, **params)
+        print(f"已更新总线「{args.bus}」的第 {args.index} 个音效")
+        for name, old, new in applied:
+            print(f"  {name:<12} {old} → {new}")
+        return 0
     applied = te.set_effect(_project_path(args), args.track, args.index, **params)
     print(f"已更新音轨 {args.track} 的第 {args.index} 个音效")
     for name, old, new in applied:
@@ -117,6 +142,13 @@ def cmd_effect_set(args: argparse.Namespace) -> int:
 
 
 def cmd_effect_remove(args: argparse.Namespace) -> int:
+    if getattr(args, "bus", None):
+        attributes = te.remove_bus_effect(_project_path(args), args.bus, args.index)
+        key = resolve_effect(attributes.get("type"))
+        label = effect_class(key).LABEL if key else attributes.get("type", "?")
+        detail = "  ".join(f"{k}={v}" for k, v in attributes.items())
+        print(f"已删除总线「{args.bus}」的第 {args.index} 个音效（{label}  {detail}）")
+        return 0
     attributes = te.remove_effect(_project_path(args), args.track, args.index)
     key = resolve_effect(attributes.get("type"))
     label = effect_class(key).LABEL if key else attributes.get("type", "?")
@@ -180,10 +212,17 @@ def cmd_effect_check(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _add_selector(parser: argparse.ArgumentParser) -> None:
+def _add_selector(parser: argparse.ArgumentParser, *, allow_bus: bool = False) -> None:
     parser.add_argument("project", help="*.musicproj 工程文件")
-    parser.add_argument("--track", required=True,
-                        help="定位音轨：1-based 序号 / 名称 / 文件名（支持部分匹配）")
+    if allow_bus:
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("--track", default=None,
+                           help="定位音轨：1-based 序号 / 名称 / 文件名（支持部分匹配）")
+        group.add_argument("--bus", default=None,
+                           help="改总线效果链（与 --track 二选一）")
+    else:
+        parser.add_argument("--track", required=True,
+                            help="定位音轨：1-based 序号 / 名称 / 文件名（支持部分匹配）")
 
 
 def _add_params(parser: argparse.ArgumentParser, help_text: str) -> None:
@@ -199,21 +238,22 @@ def register_effect_commands(sub) -> None:
     p_types = effect_sub.add_parser("types", help="列出已注册音效及其参数")
     p_types.set_defaults(func=cmd_effect_types)
 
-    p_list = effect_sub.add_parser("list", help="查看工程或某条音轨的效果链")
+    p_list = effect_sub.add_parser("list", help="查看工程 / 音轨 / 总线的效果链")
     p_list.add_argument("project", help="*.musicproj 工程文件")
     p_list.add_argument("--track", default=None,
                         help="只看某条音轨（序号 / 名称 / 文件名）；不给则列出全部")
+    p_list.add_argument("--bus", default=None, help="只看某条总线的效果链")
     p_list.set_defaults(func=cmd_effect_list)
 
     p_add = effect_sub.add_parser("add", help="给音轨追加一个音效")
-    _add_selector(p_add)
+    _add_selector(p_add, allow_bus=True)
     p_add.add_argument("--type", required=True,
-                       help="音效类型：stereo / echo / fade / electro，也认中文名")
+                       help="音效类型见 `effect types`，如 echo / compressor / limiter / reverb")
     _add_params(p_add, "参数，可重复，如 -p time=450 -p mix=0.3；不给则全用默认值")
     p_add.set_defaults(func=cmd_effect_add)
 
     p_set = effect_sub.add_parser("set", help="修改第 N 个音效的参数")
-    _add_selector(p_set)
+    _add_selector(p_set, allow_bus=True)
     p_set.add_argument("--index", type=int, required=True, help="1-based 音效序号")
     _add_params(p_set, "参数，可重复，如 -p feedback=0.5；值写 none 可删除该参数")
     p_set.set_defaults(func=cmd_effect_set)
@@ -237,6 +277,6 @@ def register_effect_commands(sub) -> None:
     p_check.set_defaults(func=cmd_effect_check)
 
     p_remove = effect_sub.add_parser("remove", help="删除第 N 个音效")
-    _add_selector(p_remove)
+    _add_selector(p_remove, allow_bus=True)
     p_remove.add_argument("--index", type=int, required=True, help="1-based 音效序号")
     p_remove.set_defaults(func=cmd_effect_remove)

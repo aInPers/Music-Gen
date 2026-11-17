@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 混音示例：编组总线 + 发送返回 + 母带限制 -->
+<musicproj name="Mix Bus" bpm="80" sampleRate="44100" beatsPerBar="4"
+           length="12s" masterGain="-1dB" normalize="true">
+  <bus name="Drums" gain="-1dB">
+    <effect type="compressor" threshold="-20" ratio="3.5" release="140" makeup="2"/>
+    <effect type="tape" drive="0.2" tone="0.6" wow="0.15" flutter="0.1" mix="0.5"/>
+  </bus>
+  <bus name="Music" gain="-2dB">
+    <effect type="eq" low="1.5" mid="-1" high="1.2" mid_freq="800"/>
+    <effect type="stereo" width="1.25"/>
+  </bus>
+  <bus name="Reverb" gain="-5dB">
+    <effect type="reverb" size="0.65" decay="3.2" tone="0.5" predelay="28" mix="1"/>
+  </bus>
+  <bus name="Delay" gain="-9dB">
+    <effect type="echo" time="375" feedback="0.3" tone="0.4" pingpong="true" mix="0.4"/>
+    <effect type="filter" mode="lowpass" freq="3200"/>
+  </bus>
+  <master>
+    <effect type="limiter" ceiling="-1" release="80" lookahead="5"/>
+  </master>
+  <track file="tracks/kick.track.xml"/>
+  <track file="tracks/hat.track.xml"/>
+  <track file="tracks/bass.track.xml"/>
+  <track file="tracks/piano.track.xml"/>
+  <track file="tracks/pad.track.xml"/>
+</musicproj>

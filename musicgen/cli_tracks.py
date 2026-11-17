@@ -76,6 +76,10 @@ def _changes_from(args: argparse.Namespace) -> dict:
         value = getattr(args, key)
         if value is not None:
             changes[key] = value
+    if getattr(args, "bus", None) is not None:
+        text = str(args.bus).strip()
+        # bus=none 表示取消归属，直接进母带
+        changes["bus"] = None if text.lower() in ("none", "-", "") else text
     appeared, value = _optional_beats(args.loop_len, "loopLen")
     if appeared:
         changes["loop_len"] = value
@@ -147,6 +151,8 @@ def cmd_track_add(args: argparse.Namespace) -> int:
         file=args.file,
         force=args.force,
     )
+    if getattr(args, "bus", None):
+        te.edit_track(project_path, ref.index, bus=str(args.bus).strip())
     print(f"已新增音轨 {ref.index}. {ref.name}")
     print(f"  文件：{ref.relative}")
     print(f"  乐器：{fetch.display(ref.instrument)} · {args.gain} · pan {args.pan} · 混响 {args.reverb}")
@@ -261,6 +267,8 @@ def _add_track_attrs(parser: argparse.ArgumentParser, *, editing: bool) -> None:
                         help="混响 0…1")
     parser.add_argument("--bpm", default=None,
                         help="逐轨速度覆盖（不给则跟随工程）")
+    parser.add_argument("--bus", default=None,
+                        help="归属总线名；写 none 表示取消归属、直接进母带")
 
 
 def register_track_commands(sub) -> None:

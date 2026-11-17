@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Hat" instrument="drums" bus="Drums" gain="-3dB" pan="0.25" loop="true" loopLen="8" loopCount="3">
+  <note time="0" dur="0.25" pitch="F#2" vel="0.5"/>
+  <note time="0.5" dur="0.25" pitch="F#2" vel="0.28"/>
+  <note time="1" dur="0.25" pitch="F#2" vel="0.45"/>
+  <note time="1.5" dur="0.25" pitch="F#2" vel="0.25"/>
+  <note time="2" dur="0.25" pitch="F#2" vel="0.48"/>
+  <note time="2.5" dur="0.25" pitch="F#2" vel="0.26"/>
+  <note time="3" dur="0.25" pitch="F#2" vel="0.44"/>
+  <note time="3.5" dur="0.25" pitch="F#2" vel="0.3"/>
+  <note time="4" dur="0.25" pitch="F#2" vel="0.5"/>
+  <note time="4.5" dur="0.25" pitch="F#2" vel="0.28"/>
+  <note time="5" dur="0.25" pitch="F#2" vel="0.45"/>
+  <note time="5.5" dur="0.25" pitch="F#2" vel="0.25"/>
+  <note time="6" dur="0.25" pitch="F#2" vel="0.47"/>
+  <note time="6.5" dur="0.25" pitch="F#2" vel="0.27"/>
+  <note time="7" dur="0.25" pitch="F#2" vel="0.43"/>
+  <note time="7.5" dur="0.25" pitch="F#2" vel="0.3"/>
+</track>

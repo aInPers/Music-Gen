@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Kick" instrument="drums" bus="Drums" gain="-3dB" loop="true" loopLen="8" loopCount="3">
+  <note time="0" dur="0.25" pitch="C2" vel="0.95"/>
+  <note time="2.5" dur="0.25" pitch="C2" vel="0.7"/>
+  <note time="4" dur="0.25" pitch="C2" vel="0.9"/>
+  <note time="6" dur="0.25" pitch="C2" vel="0.75"/>
+</track>

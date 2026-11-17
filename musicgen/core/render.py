@@ -206,6 +206,11 @@ def render_project(
         warnings.append("没有可渲染的音轨（全部静音或为空）")
 
     master = np.zeros((2, frames), dtype=np.float32)
+    #: 总线输入累加器（键为小写名），轨道归属与发送都汇到这里
+    bus_inputs: dict[str, np.ndarray] = {
+        bus.name.strip().lower(): np.zeros((2, frames), dtype=np.float32)
+        for bus in project.buses
+    }
     note_cache: dict[tuple, np.ndarray] = {}
     # 时间轴补全：同一分轨拆成多条工程轨时，同一起音的多个音符会挂同一个
     # 立体声块。只播一次，否则该区间被叠 N 遍（响 +6dB 以上）。
@@ -324,7 +329,26 @@ def render_project(
                     f"该效果已跳过：{type(exc).__name__}: {exc}"
                 )
 
-        master += buffer
+        # 混音路由：归属总线 → 该总线；发送 → 目标总线；都不设 → 直接进母带
+        target = project.find_bus(track.bus)
+        if track.bus and target is None:
+            warnings.append(
+                f"音轨「{track.name}」归属的总线「{track.bus}」不存在，已直接并入母带"
+            )
+        if target is not None:
+            bus_inputs[target.name.strip().lower()] += buffer
+        for sent in track.sends:
+            if sent.amount <= 1e-4:
+                continue
+            destination = project.find_bus(sent.bus)
+            if destination is None:
+                warnings.append(
+                    f"音轨「{track.name}」发送的目标总线「{sent.bus}」不存在，该发送已忽略"
+                )
+                continue
+            bus_inputs[destination.name.strip().lower()] += buffer * float(sent.amount)
+        if target is None:
+            master += buffer
 
         peak = float(np.max(np.abs(buffer)))
         sounding = float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr
@@ -341,6 +365,38 @@ def render_project(
         )
         notes_rendered += track_notes
         report(done / total_notes * 0.9, f"渲染音轨：{track.name}")
+
+    # ---- 总线：汇总 → 效果链 → 推子 → 母带 ----
+    for bus in project.buses:
+        buffer = bus_inputs.get(bus.name.strip().lower())
+        if buffer is None:
+            continue
+        for spec in bus.effects:
+            label = _effect_label(spec)
+            report(0.90, f"总线音效：{label}（{bus.name}）")
+            try:
+                buffer = create_effect(spec.type, spec.params).process(buffer, sr)
+            except Exception as exc:  # noqa: BLE001 - 单个效果出错不该让整首渲染失败
+                warnings.append(
+                    f"总线音效 {label}（{spec.type}）在「{bus.name}」上处理失败，"
+                    f"该效果已跳过：{type(exc).__name__}: {exc}"
+                )
+        if bus.mute:
+            warnings.append(f"总线「{bus.name}」已静音，其输出未进入母带")
+            continue
+        buffer *= db_to_gain(bus.gain_db)
+        master += buffer
+        peak = float(np.max(np.abs(buffer))) if buffer.size else 0.0
+        sounding = float(np.count_nonzero(np.any(buffer != 0, axis=0))) / sr
+        mono = np.mean(buffer, axis=0, dtype=np.float32)
+        bus_rms = float(np.sqrt(np.mean(np.square(mono, dtype=np.float64)))) if mono.size else 0.0
+        stats.append(
+            TrackStat(
+                bus.name, "", 0, peak, sounding,
+                " → ".join(_effect_label(spec) for spec in bus.effects),
+                "bus", rms=bus_rms, envelope=_envelope(mono, sr),
+            )
+        )
 
     report(0.92, "母带处理")
     master *= db_to_gain(project.master_gain_db)

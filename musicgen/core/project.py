@@ -75,6 +75,28 @@ class Note:
 
 
 @dataclass
+class Send:
+    """轨道送往某条总线的发送量（0–1，post-fader）。"""
+
+    bus: str
+    amount: float = 0.0
+
+
+@dataclass
+class Bus:
+    """编组 / 返回总线：多轨汇总后统一走效果链与推子。
+
+    总线按工程里 ``<bus>`` 的出现顺序处理，输出直接进母带；总线之间不再互相发送，
+    这样结构上不可能出现反馈环。
+    """
+
+    name: str
+    gain_db: float = 0.0
+    mute: bool = False
+    effects: list["EffectSpec"] = field(default_factory=list)
+
+
+@dataclass
 class Track:
     name: str
     instrument: str = "piano"
@@ -98,6 +120,9 @@ class Track:
     audio_duration: float = 0.0     # 片段时长（秒），解析时读头部填入
     # 合成音脚本：instrument="synth" 时由它提供音色；相对路径相对音轨文件
     patch_path: Path | None = None
+    # 混音路由：归属总线（None = 直接进母带）与送往其它总线的发送量
+    bus: str | None = None
+    sends: list[Send] = field(default_factory=list)
 
     # ---- 派生量 -------------------------------------------------------
     @property
@@ -141,12 +166,24 @@ class Project:
     normalize: bool = True
     #: 母带效果链（``<master>`` 下的 ``<effect>``，在总线上、归一化之前生效）
     master_effects: list[EffectSpec] = field(default_factory=list)
+    #: 编组 / 返回总线（``<bus>``，按出现顺序处理）
+    buses: list[Bus] = field(default_factory=list)
     tracks: list[Track] = field(default_factory=list)
     warnings: list[Issue] = field(default_factory=list)
 
     @property
     def base_dir(self) -> Path:
         return self.path.parent
+
+    def find_bus(self, name: str | None) -> Bus | None:
+        """按名字找总线（大小写不敏感）；没有返回 None。"""
+        if not name:
+            return None
+        wanted = str(name).strip().lower()
+        for bus in self.buses:
+            if bus.name.strip().lower() == wanted:
+                return bus
+        return None
 
     # ---- 时长计算 -----------------------------------------------------
     def compute_length_seconds(self) -> float:
@@ -264,6 +301,21 @@ def _parse_velocity(text: str | None, default: float = 0.8) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _parse_send_element(el, label: str, issues: list[Issue]) -> "Send | None":
+    """``<send bus="Reverb" amount="0.3"/>`` → :class:`Send`。"""
+    target = (el.get("bus") or el.get("to") or "").strip()
+    if not target:
+        issues.append(Issue("error", label, "缺少 bus 属性（要送往哪条总线）"))
+        return None
+    try:
+        amount = _parse_number(el.get("amount") or el.get("send") or "0", "amount")
+        amount = max(0.0, min(1.0, amount))
+    except ValueError as exc:
+        issues.append(Issue("warning", label, f"发送量无效，已按 0 处理: {exc}"))
+        amount = 0.0
+    return Send(bus=target, amount=amount)
+
+
 def _parse_effect_element(el, label: str, issues: list[Issue]) -> "EffectSpec | None":
     """解析一个 ``<effect>`` 节点；参数越界只警告，类型未知直接跳过。"""
     raw_type = el.get("type")
@@ -337,6 +389,8 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
         except PatchError as exc:
             issues.append(Issue("error", where, f"合成音脚本无效: {exc}"))
 
+    if root.get("bus"):
+        track.bus = root.get("bus").strip() or None
     if root.get("bpm"):
         try:
             track.bpm = _parse_number(root.get("bpm"), "bpm")
@@ -391,6 +445,11 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
             spec = _parse_effect_element(el, f"{where} 第 {index + 1} 个 <effect>", issues)
             if spec is not None:
                 track.effects.append(spec)
+            continue
+        if el.tag == "send":
+            sent = _parse_send_element(el, f"{where} 第 {index + 1} 个 <send>", issues)
+            if sent is not None:
+                track.sends.append(sent)
             continue
         if el.tag != "note":
             if el.tag not in ("comment", "meta"):
@@ -497,6 +556,37 @@ def load_project(path: str | Path) -> Project:
                 )
                 if spec is not None:
                     project.master_effects.append(spec)
+        # 编组 / 返回总线：多轨汇总后再走效果与推子
+        seen_buses: set[str] = set()
+        for index, el in enumerate(root.findall("bus")):
+            label = f"{project_path.name} 第 {index + 1} 个 <bus>"
+            name = (el.get("name") or "").strip()
+            if not name:
+                issues.append(Issue("error", label, "缺少 name 属性"))
+                continue
+            key = name.lower()
+            if key in seen_buses:
+                issues.append(Issue("error", label, f"总线名「{name}」重复，路由会有歧义"))
+                continue
+            seen_buses.add(key)
+            bus = Bus(name=name)
+            if el.get("gain") is not None:
+                try:
+                    bus.gain_db = _parse_gain_db(el.get("gain"))
+                except ValueError as exc:
+                    issues.append(Issue("warning", label, f"gain 无效: {exc}"))
+            if el.get("mute") is not None:
+                try:
+                    bus.mute = _parse_bool(el.get("mute"))
+                except ValueError as exc:
+                    issues.append(Issue("warning", label, str(exc)))
+            for effect_index, effect_el in enumerate(el.findall("effect")):
+                spec = _parse_effect_element(
+                    effect_el, f"{label} 第 {effect_index + 1} 个 <effect>", issues
+                )
+                if spec is not None:
+                    bus.effects.append(spec)
+            project.buses.append(bus)
         if root.get("length") is not None:
             project.length_spec = root.get("length").strip()
         if root.get("tail") is not None:
@@ -553,7 +643,43 @@ def load_project(path: str | Path) -> Project:
                 track.loop = _parse_bool(el.get("loop"))
             except ValueError as exc:
                 issues.append(Issue("warning", file_attr, str(exc)))
+        # 工程层可以覆盖音轨归属，并追加发送；轨道文件里的同名发送会被这里覆盖
+        if el.get("bus") is not None:
+            track.bus = (el.get("bus").strip() or None)
+        for send_index, send_el in enumerate(el.findall("send")):
+            sent = _parse_send_element(
+                send_el, f"{file_attr} 第 {send_index + 1} 个 <send>", issues
+            )
+            if sent is None:
+                continue
+            existing = next(
+                (s for s in track.sends if s.bus.lower() == sent.bus.lower()), None
+            )
+            if existing is not None:
+                existing.amount = sent.amount
+            else:
+                track.sends.append(sent)
         project.tracks.append(track)
+
+    # ---- 路由校验：引用的总线必须存在，否则渲染时只能兜底 ----
+    bus_names = {bus.name.strip().lower() for bus in project.buses}
+    for track in project.tracks:
+        where = track.path.name if track.path else track.name
+        if track.bus and track.bus.strip().lower() not in bus_names:
+            issues.append(
+                Issue("warning", where,
+                      f"归属总线「{track.bus}」不存在，渲染时会直接并入母带")
+            )
+        for sent in track.sends:
+            if sent.bus.strip().lower() not in bus_names:
+                issues.append(
+                    Issue("warning", where,
+                          f"发送目标总线「{sent.bus}」不存在，该发送会被忽略")
+                )
+            elif sent.amount <= 0:
+                issues.append(
+                    Issue("warning", where, f"发送到「{sent.bus}」的量为 0，等于不起作用")
+                )
 
     errors = [i for i in issues if i.level == "error"]
     project.warnings = [i for i in issues if i.level != "error"]
@@ -632,6 +758,11 @@ def save_track(track: Track, path: Path | None = None) -> Path:
         except ValueError:
             relative = str(track.patch_path)
         root.set("patch", relative)
+    if track.bus:
+        root.set("bus", track.bus)
+    for sent in track.sends:
+        if sent.amount > 0:
+            ET.SubElement(root, "send", {"bus": sent.bus, "amount": f"{sent.amount:g}"})
     for spec in track.effects:
         ET.SubElement(root, "effect", spec.to_attrs())
     if track.audio_path is not None:
@@ -749,7 +880,7 @@ def clear_track_overrides(project_path: Path, track_path: Path | None,
             continue
         file_attr = (element.get("file") or "").replace("\\", "/")
         if file_attr == relative:
-            attrs = ["gain", "pan", "mute", "solo", "loop"]
+            attrs = ["gain", "pan", "mute", "solo", "loop", "bus"]
             if include_name:
                 attrs.append("name")
             for attr in attrs:
