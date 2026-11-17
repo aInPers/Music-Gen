@@ -10,22 +10,68 @@ description: 用 MusicGen 命令行把音乐需求做成可交付的 WAV——�
 把「写一段 30 秒治愈系钢琴曲」落成两样东西：一个可复现的工程目录 + 一个 WAV。
 底层是仓库自带的 `python -m musicgen`，不需要任何外部音乐库或在线服务。
 
-**能力边界**：13 件内置音色（钢琴 / 小提琴 / 大提琴 / 小号 / 竖笛 / 吉他 / 贝斯 / 人声 / 合成鼓组 /
-合成垫 / 合成主音 / 合成贝斯 / 合成拨弦）+ 任意 `.synth.json` 自定义合成音色、11 个效果、
-44.1kHz 立体声 WAV。内置 `vocal` 音色只有元音吟唱（没有歌词）；音频分析里人声是原唱分轨原样保留。
+**能力边界**：GM 目录 **128 件真实采样音色**（钢琴 / 吉他 / 贝斯各 8，弦乐与合奏 16，铜管 8，簧管 8，
+吹管 8，民族乐器 8，色彩打击 8，合成主音 / 铺底 / 音效 24…），按需 `samples fetch` 安装，**单件 3–5 秒**；
+另有内置合成鼓组、11 个效果、44.1kHz 立体声 WAV。
+`synth_*` 与 `.synth.json` 合成音色只是「目录里确实没有对应真实乐器」时的补充，**不是缺省选项**。
+内置 `vocal` 音色只有元音吟唱（没有歌词）；音频分析里人声是原唱分轨原样保留。
 没有 MIDI 导出、速度渐变、延音踏板（导入有 `import-midi`）。
 
 ## 开工前检查
 
 ```bash
 cd /f/Music-Gen            # cmd 里写 cd /d F:\Music-Gen
-python -m musicgen samples list
+python -m musicgen samples list      # 已注册乐器与下载状态
+python -m musicgen samples catalog   # 全部 128 件（`--family 弦乐` 只看一族）
 ```
 
-- 八件采样都显示「就绪」才有真实音色；缺了先 `python -m musicgen samples fetch`（联网约 10MB）。
-  合成音色与鼓组无需下载，永远就绪。
+- 常用八件（钢琴 / 小提琴 / 大提琴 / 小号 / 竖笛 / 吉他 / 贝斯 / 人声）显示「就绪」即可直接开工；
+  缺了先 `python -m musicgen samples fetch`（初次只下这八件，约 10MB；注册表里装了更多之后会一并下载）。
+- **其余 120 件按需安装**：见下节，装一件只要几秒，不要因为「没装」就换成合成音。
 - 工程写 `songs/<slug>/`，成品写 `output/<slug>.wav`；**不要改 `examples/`**，那是回归样例。
 - 目录名与文件名用英文或拼音 slug，中文只放 `name` 属性里。
+
+## 0. 先定音色：能装真实乐器，就不要用合成音
+
+**这是本技能最容易走偏的一步。** 模型找不到乐器时倾向于随手写 `instrument="synth_lead"` 或
+`synth_pad` 顶上，结果音色完全不对，用户听到的是「电音凑数」。正确顺序是：
+
+| 步 | 动作 | 命令 |
+| --- | --- | --- |
+| 1 | 查目录里有没有这件乐器 | `python -m musicgen samples search 萨克斯` |
+| 2 | 有 → 直接装（3–5 秒） | `python -m musicgen samples fetch --instrument alto_sax` |
+| 3 | 没有完全对应的 → **在同族里挑最近的真实乐器** | `samples catalog --family 簧管` 后选 `clarinet` |
+| 4 | 目录里连一件可用的真实乐器都没有，才用合成音 | `instrument="synth_pad"`，并在交付说明里写清原因 |
+
+**明确禁止**（这些都会导致音色不可用）：
+
+- ❌ 想要萨克斯，却写 `instrument="synth_lead"` —— 该装 `alto_sax`
+- ❌ 想要弦乐铺底，却用 `synth_pad` —— 该装 `string_ensemble_1`
+- ❌ 觉得「下载麻烦」而略过安装 —— 一件只要 3–5 秒，整首曲子最多装三五件
+- ❌ 用目录里不存在的自造名字（`instrument="sax"` 若不在别名里，就只能靠 `search` 找键名）
+
+**常见需求 → 目录键名**（不确定就 `samples search 中文名`）：
+
+| 用户要的音色 | 用这些键名 |
+| --- | --- |
+| 弦乐群 / 弦乐铺底 | `string_ensemble_1`（慢弦乐用 `string_ensemble_2`） |
+| 长笛 / 短笛 / 排箫 | `flute` / `piccolo` / `pan_flute` |
+| 双簧管 / 单簧管 / 大管 | `oboe` / `clarinet` / `bassoon` |
+| 萨克斯 | `alto_sax`（中音）/ `tenor_sax`（次中音）/ `soprano_sax` / `baritone_sax` |
+| 圆号 / 长号 / 大号 / 铜管群 | `french_horn` / `trombone` / `tuba` / `brass_section` |
+| 竖琴 / 定音鼓 / 管钟 | `orchestral_harp` / `timpani` / `tubular_bells` |
+| 钟琴 / 马林巴 / 木琴 / 钢片琴 | `glockenspiel` / `marimba` / `xylophone` / `celesta` |
+| 管风琴 / 手风琴 / 口琴 | `church_organ` / `accordion` / `harmonica` |
+| 电钢琴 / 羽管键琴 | `electric_piano_1` / `harpsichord` |
+| 失真 / 过载 / 清音电吉他 | `distortion_guitar` / `overdriven_guitar` / `electric_guitar_clean` |
+| 中国风（古筝 / 二胡 / 唢呐 / 笛） | `koto` / `fiddle` / `shanai` / `flute`（无笛子采样，长笛最接近） |
+| 西塔琴 / 班卓琴 / 风笛 / 三味线 | `sitar` / `banjo` / `bagpipe` / `shamisen` |
+| 钢鼓 / 太鼓 / 木鱼 / 铃 | `steel_drums` / `taiko_drum` / `woodblock` / `tinkle_bell` |
+| 台风 / 雨声 / 鸟鸣等音效 | `fx_1_rain` `seashore` `bird_tweet` `applause`（见 `--family 音效`） |
+
+一次性装齐某族：`python -m musicgen samples fetch --catalog --family 弦乐`（8 件约 30 秒）；
+装全部 128 件：`samples fetch --catalog`（约 120MB，8 分钟，非必要不做）。
+
 
 ## 五步工作流
 
@@ -93,11 +139,16 @@ python -m musicgen render songs/<slug>/<slug>.musicproj -o output/<slug>.wav
 ## 命令速查
 
 ```bash
-# 环境
+# 环境与音色
 cd /f/Music-Gen            # cmd 里写 cd /d F:\Music-Gen
 python -m musicgen -V
-python -m musicgen samples list
-python -m musicgen samples fetch --instrument cello,guitar
+python -m musicgen samples list                              # 已注册乐器状态
+python -m musicgen samples catalog                           # 全部 128 件
+python -m musicgen samples catalog --family 弦乐             # 按音色族看
+python -m musicgen samples search 萨克斯                      # 按关键词找音色
+python -m musicgen samples fetch --instrument alto_sax,flute  # 装指定乐器（自动注册）
+python -m musicgen samples fetch --catalog --family 铜管       # 整族安装
+python -m musicgen samples fetch                              # 装全部已注册（初次为常用八件）
 
 # 建工程
 python -m musicgen init songs/MySong --bpm 96 --template empty
@@ -127,7 +178,7 @@ python -m musicgen analyze input/song.mp3 -o songs/Reverse-Audio --audio-tracks 
 python -m musicgen analyze input/song.mp3 -o songs/Reverse --no-layers --no-brief  # 只出工程
 python -m musicgen analyze input/song.mp3 -o songs/Reverse --decisions songs/Reverse/decisions.json
 
-# 合成音脚本（代替缺失音色；也能挂在音轨上）
+# 合成音脚本（仅当目录里确实没有对应真实乐器时用；也能挂在音轨上）
 python -m musicgen synth list
 python -m musicgen synth check warm_pad --midi 60 --dur 0.8
 python -m musicgen synth render analog_lead -o output/lead.wav --midi 60,64,67
@@ -162,17 +213,19 @@ python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script
 
 | # | 规则 | 违反后的表现 | 正确做法 |
 | --- | --- | --- | --- |
-| 1 | 音高必须在乐器音域内 | **不报错**，只警告并换成合成器，音色断层 | 钢琴 A0–C8、小提琴 G3–C7、大提琴 C2–C6、小号 E3–C6、竖笛 C4–C7、吉他 E2–E6、贝斯 E1–G4、人声 C3–C6 |
-| 2 | 单个采样约 3.13 秒 | 更长的音尾部被 0.15s 淡出，像断气 | 长音拆成 2–3 个重叠触发，或时值控制在 3 秒内 |
-| 3 | 没有延音踏板、连奏、揉弦 | 钢琴长音靠采样自己衰减；弦乐每个音独立起音 | 钢琴用「时值 = 间隔 × 1.2–1.5」叠出延音；弦乐少换音、走长音 |
-| 4 | 鼓的 `dur` 无效 | 以为能控长短，其实固定采样长度（开镲 1.9s、吊镲 2.5s） | 用鼓件与力度表达长短，不要调 `dur` |
-| 5 | 循环轨音符起点要小于 `loopLen` | 超出周期的音不播放（`validate` 有警告） | `loopLen` ≥ 最后一个音的起点，或干脆不循环 |
-| 6 | `length="auto"` 会自动加 `tail` | 成品比预期长（默认多 2 秒） | 要精确秒数就写 `length="60s"` |
-| 7 | 工程层 `<track>` 不能覆盖 `reverb` | 写了不生效，还以为混响错了 | `reverb` 写进音轨文件，不要写在工程引用上 |
-| 8 | 默认归一化到 −1dBFS | 多轨叠加不会削波，但整体响度由峰值决定 | 别用 RMS 跨曲比「谁更响」 |
-| 9 | XML 特殊字符要转义 | `&` 未转义、注释里出现 `--` 都会解析失败（退出码 2） | 写 `&amp;`，注释里别用连续两个减号 |
-| 10 | `instrument="synth"` 必须带 `patch` | 只警告并静默换成兜底合成器，音色完全不对 | 写 `patch="../synths/xxx.synth.json"`，相对音轨文件；先 `synth check` 过一遍 |
-| 11 | 合成音脚本的 `oscillators` 只认 `sine/square/saw/triangle/noise` | 写错波形名载入失败，同样退回兜底音色 | 参数表见 `synth show <名>`；改完必须 `synth check` |
+| 1 | **音色优先用真实采样，不要用合成音凑** | `synth_*` 顶替真实乐器，音色完全不对且用户能立刻听出来 | 先 `samples search` / `samples catalog`，找到就 `samples fetch --instrument <键名>`（3–5 秒）；目录里没有才用 `synth_*` 并在交付里说明 |
+| 2 | 音高必须在乐器音域内 | **不报错**，只警告并换成合成器，音色断层 | 音域查 `samples catalog` 的 `range_label`；常用：钢琴 A0–C8、小提琴 G3–C7、大提琴 C2–C6、小号 E3–C6、吉他 E2–E6、贝斯 E1–G4 |
+| 3 | 单个采样约 3.13 秒 | 更长的音尾部被 0.15s 淡出，像断气 | 长音拆成 2–3 个重叠触发，或时值控制在 3 秒内 |
+| 4 | 没有延音踏板、连奏、揉弦 | 钢琴长音靠采样自己衰减；弦乐每个音独立起音 | 钢琴用「时值 = 间隔 × 1.2–1.5」叠出延音；弦乐少换音、走长音 |
+| 5 | 鼓的 `dur` 无效 | 以为能控长短，其实固定采样长度（开镲 1.9s、吊镲 2.5s） | 用鼓件与力度表达长短，不要调 `dur` |
+| 6 | 循环轨音符起点要小于 `loopLen` | 超出周期的音不播放（`validate` 有警告） | `loopLen` ≥ 最后一个音的起点，或干脆不循环 |
+| 7 | `length="auto"` 会自动加 `tail` | 成品比预期长（默认多 2 秒） | 要精确秒数就写 `length="60s"` |
+| 8 | 工程层 `<track>` 不能覆盖 `reverb` | 写了不生效，还以为混响错了 | `reverb` 写进音轨文件，不要写在工程引用上 |
+| 9 | 默认归一化到 −1dBFS | 多轨叠加不会削波，但整体响度由峰值决定 | 别用 RMS 跨曲比「谁更响」 |
+| 10 | XML 特殊字符要转义 | `&` 未转义、注释里出现 `--` 都会解析失败（退出码 2） | 写 `&amp;`，注释里别用连续两个减号 |
+| 11 | `instrument="synth"` 必须带 `patch` | 只警告并静默换成兜底合成器，音色完全不对 | 写 `patch="../synths/xxx.synth.json"`，相对音轨文件；先 `synth check` 过一遍 |
+| 12 | 合成音脚本的 `oscillators` 只认 `sine/square/saw/triangle/noise` | 写错波形名载入失败，同样退回兜底音色 | 参数表见 `synth show <名>`；改完必须 `synth check` |
+| 13 | 渲染输出里出现「采样未就绪」告警 | 该轨整条被合成器顶替，音色断层 | 按提示的 `samples fetch --instrument xxx` 装上后重渲，不要带着告警交付 |
 
 ## 交付
 
@@ -192,10 +245,11 @@ python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script
 
 | 文件 | 什么时候读 |
 | --- | --- |
-| `references/编曲设计.md` | 通用编曲方法（功能层、曲式、和声、配器、织体、律动、风格配方）。先按它设计，再看 §13 映射到本项目的 9 件基础乐器（+4 件合成音色） |
+| `references/编曲设计.md` | 通用编曲方法（功能层、曲式、和声、配器、织体、律动、风格配方）。先按它设计，再看 §13 映射到本项目的 128 件 GM 目录音色 |
 | `references/工程格式.md` | 写或改 `*.musicproj` / `*.track.xml` 之前 |
 | `references/混音与验收.md` | 定 gain / pan / reverb、判断成品能不能交时 |
 | `references/音频还原.md` | 用户给的是音频而不是需求（「把这首 mp3 还原成工程」）时；含参数、分轨映射、误检清理与验收清单 |
 | `references/逆向判断.md` | 要**精修**还原结果（换音色、上合成音、加效果、拆分层、改段落标签）时；含判据、决策文件 schema 与验收方法 |
 
 仓库 `examples/` 里还有五个可跑范例：`demo`（钢琴小品）、`ensemble`（四重奏）、`twinkle`（儿歌改编）、`band`（含鼓）、`moonlight`（三连音与长踏板模拟）。
+
