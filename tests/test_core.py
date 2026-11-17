@@ -284,8 +284,9 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(result.notes_rendered, 4)  # 8 拍 / 2 拍循环 = 4 次
 
     def test_unknown_instrument_falls_back(self) -> None:
+        # 必须用目录里也没有的名字；banjo / flute 这类现在都是真实音色
         project = self._project()
-        project.tracks[0].instrument = "banjo"
+        project.tracks[0].instrument = "kazoo"
         result = render_project(project)
         self.assertGreater(result.peak, 0.0)
         self.assertTrue(any("合成器" in w for w in result.warnings))
@@ -350,9 +351,13 @@ class InstrumentTests(unittest.TestCase):
         self.assertEqual(path.suffix, ".mp3")
 
     def test_every_source_has_gain(self) -> None:
+        # 128 件目录乐器用族级增益（注册表里），内置 INSTRUMENT_GAIN 只是兜底，
+        # 所以断言「有正的增益来源」而不是「必须在内置表里」。
         for key in fetch.SOURCES:
-            self.assertIn(key, INSTRUMENT_GAIN)
-            self.assertGreater(INSTRUMENT_GAIN[key], 0)
+            gain = fetch.instrument_gain(key)
+            self.assertTrue(gain is not None or key in INSTRUMENT_GAIN, key)
+            effective = gain if gain is not None else INSTRUMENT_GAIN[key]
+            self.assertGreater(effective, 0, key)
 
     def test_gain_applied_per_instrument(self) -> None:
         if not fetch.available_notes("cello"):

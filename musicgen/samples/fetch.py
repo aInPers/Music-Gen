@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from ..core.notes import midi_to_name
+from . import gm_catalog
 from . import registry as _registry
 
 #: 单个文件每个镜像的下载超时（秒）
@@ -192,10 +193,19 @@ reload_registry()
 
 
 def resolve(name: str | None) -> str:
-    """把工程里的乐器名规整成注册键（``大提琴`` → ``cello``）。"""
+    """把工程里的乐器名规整成注册键（``大提琴`` → ``cello``）。
+
+    注册表里查不到时再查 GM 目录：这样 128 件音色即使还没注册，
+    也能落到正确的键名上（随后由 ``fetch_instrument`` 自动注册），
+    而不是被当成「未知乐器」退化成合成器。
+    """
     key = (name or "piano").strip()
     lowered = key.lower()
-    return ALIASES.get(key, ALIASES.get(lowered, lowered))
+    hit = ALIASES.get(key, ALIASES.get(lowered))
+    if hit is not None:
+        return hit
+    program = gm_catalog.lookup(lowered)
+    return program.key if program else lowered
 
 
 def label(instrument: str) -> str:
@@ -252,7 +262,11 @@ def cache_dir_for(instrument: str, cache_root: Path | None = None) -> Path:
 def sample_path(instrument: str, note_name: str, cache_root: Path | None = None) -> Path:
     key = resolve(instrument)
     source = SOURCES.get(key)
-    ext = source.extension if source else "wav"
+    if source is not None:
+        ext = source.extension
+    else:
+        # 目录里的乐器一律是 mp3；从原曲切出来的采样（src_*）是 wav
+        ext = "mp3" if gm_catalog.lookup(key) else "wav"
     return cache_dir_for(key, cache_root) / f"{note_name}.{ext}"
 
 
@@ -309,13 +323,32 @@ def fetch_instrument(
     force: bool = False,
     progress: Callable[[int, int, str], None] | None = None,
 ) -> FetchReport:
-    """下载（或复用）某个乐器的全套采样。"""
+    """下载（或复用）某个乐器的全套采样。
+
+    传入的乐器可以还没进注册表——只要它在 GM 目录（128 件）里，就会先自动
+    注册再下载。这是「找到合适乐器就用真实采样」这条路的兜底：调用方不必
+    事先手工 ``instrument add``。
+    """
     instrument = resolve(instrument)
     source = SOURCES.get(instrument)
     if source is None:
+        entry = _registry.ensure_from_entry(_registry.load(), instrument)
+        if entry is not None:
+            reload_registry()
+            instrument = entry["key"]
+            source = SOURCES.get(instrument)
+    if source is None:
+        hint = search(instrument)
+        detail = (
+            "；目录里相近的："
+            + "、".join(f"{p.zh}({p.key})" for p in hint[:5])
+            if hint
+            else "（GM 目录里也没有同名乐器，可用 `samples catalog` 查看全部 128 件）"
+        )
         raise FetchError(
             f"未知乐器 '{instrument}'，可选: "
             + "、".join(f"{LABELS.get(k, k)}({k})" for k in SOURCES)
+            + detail
         )
 
     target_dir = cache_dir_for(instrument, cache_root)
@@ -397,7 +430,10 @@ def available_notes(instrument: str, cache_root: Path | None = None) -> list[int
         source = SYNTHS[instrument]
         return list(range(int(source.midi_low), int(source.midi_high) + 1))
     source = SOURCES.get(instrument)
-    ext = source.extension if source else "wav"
+    if source is not None:
+        ext = source.extension
+    else:
+        ext = "mp3" if gm_catalog.lookup(instrument) else "wav"
     folder = cache_dir_for(instrument, cache_root)
     if not folder.is_dir():
         return []
@@ -414,5 +450,75 @@ def instrument_status(instrument: str, cache_root: Path | None = None) -> tuple[
     """返回（已缓存数量, 应有数量）。"""
     instrument = resolve(instrument)
     source = SOURCES.get(instrument)
-    expected = len(list(source.midi_range())) if source else 0
+    if source is not None:
+        expected = len(list(source.midi_range()))
+    else:
+        program = gm_catalog.lookup(instrument)
+        expected = (program.high - program.low + 1) if program else 0
     return len(available_notes(instrument, cache_root)), expected
+
+
+# ---------------------------------------------------------------------------
+# GM 目录：列出、搜索、批量获取
+# ---------------------------------------------------------------------------
+
+
+def catalog(family: str | None = None, cache_root: Path | None = None) -> list[dict]:
+    """目录里的乐器 + 它们在本机的状态。
+
+    每项包含 ``key / gm / zh / en / family / range_label / registered /
+    have / want / ready``，供 CLI 与 Skill 判断「有没有、下没下」。
+    """
+    rows: list[dict] = []
+    registered = {e["key"] for e in _registry.load()}
+    for program in gm_catalog.by_family(family):
+        have, want = instrument_status(program.key, cache_root)
+        rows.append({
+            "key": program.key,
+            "gm": program.gm,
+            "zh": program.zh,
+            "en": program.en,
+            "family": program.family,
+            "range_label": program.range_label,
+            "midi_low": program.low,
+            "midi_high": program.high,
+            "registered": program.key in registered,
+            "have": have,
+            "want": want,
+            "ready": bool(want) and have >= want,
+        })
+    return rows
+
+
+def search(keyword: str, limit: int = 20) -> list[gm_catalog.GmProgram]:
+    """在 128 件目录里搜音色，供「没有现成乐器时找替代」使用。"""
+    return gm_catalog.search(keyword, limit=limit)
+
+
+def fetch_many(
+    instruments: Iterable[str],
+    cache_root: Path | None = None,
+    force: bool = False,
+    progress: Callable[[int, int, str], None] | None = None,
+    instrument_done: Callable[[int, int, str, "FetchReport | None", str], None] | None = None,
+) -> list[FetchReport]:
+    """批量下载，单个乐器失败不影响后续。
+
+    ``instrument_done(序号, 总数, 乐器, 报告, 错误信息)`` 用于逐件汇报，
+    报告为 ``None`` 表示这件失败。
+    """
+    todo = [resolve(i) for i in instruments if str(i).strip()]
+    reports: list[FetchReport] = []
+    total = len(todo)
+    for index, key in enumerate(todo, start=1):
+        try:
+            report = fetch_instrument(key, cache_root=cache_root, force=force, progress=progress)
+        except FetchError as exc:
+            if instrument_done:
+                instrument_done(index, total, key, None, str(exc))
+            continue
+        reports.append(report)
+        if instrument_done:
+            instrument_done(index, total, key, report, "")
+    return reports
+

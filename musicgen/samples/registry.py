@@ -18,7 +18,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-VERSION = 3
+from . import gm_catalog
+
+VERSION = 4
 FLUID_LICENSE = "FluidR3 GM SoundFont（MIT / 自由使用，源自 Frank Wen）"
 FLUID_HOME = "https://github.com/gleitz/midi-js-soundfonts"
 
@@ -33,13 +35,14 @@ class RegistryError(RuntimeError):
 
 
 def fluid_mirrors(gm_name: str) -> list[str]:
-    """FluidR3 GM 某件乐器的多镜像地址（jsDelivr → fastly → gcore → GitHub）。"""
+    """FluidR3 GM 某件乐器的多镜像地址（GitHub 代理 → gcore → jsDelivr → GitHub）。"""
     gh = _FLUID_GH.format(gm=gm_name, name="{name}", ext="{ext}")
     raw = _FLUID_RAW.format(gm=gm_name, name="{name}", ext="{ext}")
     return [
+        f"https://gh-proxy.com/https://raw.githubusercontent.com/{raw}",
+        f"https://gcore.jsdelivr.net/{gh}",
         f"https://cdn.jsdelivr.net/{gh}",
         f"https://fastly.jsdelivr.net/{gh}",
-        f"https://gcore.jsdelivr.net/{gh}",
         f"https://raw.githubusercontent.com/{raw}",
     ]
 
@@ -76,7 +79,7 @@ DEFAULT_ENTRIES: list[dict[str, Any]] = [
     },
     {
         "key": "recorder", "label": "竖笛",
-        "aliases": ["牧童笛", "木笛", "flute", "竖笛"],
+        "aliases": ["牧童笛", "木笛", "竖笛"],
         "kind": "sample", "gm": "recorder",
         "title": "FluidR3 GM — Recorder",
         "midi_low": 60, "midi_high": 96,
@@ -231,14 +234,21 @@ def load() -> list[dict[str, Any]]:
         # 旧版注册表升级：把新增的内置乐器（如 bass / vocal）补进去，
         # 用户已有的条目与参数保持不变。
         if int(data.get("version") or 1) < VERSION:
+            # v4：flute（长笛）成为独立的目录乐器，旧版本把 "flute" 当作竖笛的
+            # 别名，会导致长笛被解析成竖笛、状态也串到一起。这里清理掉。
+            for entry in entries:
+                if entry["key"] == "recorder":
+                    entry["aliases"] = [
+                        a for a in entry.get("aliases", []) if a.strip().lower() != "flute"
+                    ]
             existing = {e["key"] for e in entries}
             added = [_normalize(e) for e in defaults() if e["key"] not in existing]
             if added:
                 entries.extend(added)
-                try:
-                    save(entries)
-                except OSError:
-                    pass  # 只读环境：本次用合并结果，下次再试
+            try:
+                save(entries)
+            except OSError:
+                pass  # 只读环境：本次用合并结果，下次再试
         return entries
     except (OSError, ValueError, KeyError, json.JSONDecodeError, RegistryError):
         return defaults()
@@ -274,6 +284,68 @@ def add(entries: list[dict[str, Any]], spec: dict[str, Any],
         entries.append(entry)
     save(entries)
     return entry
+
+
+# ---------------------------------------------------------------------------
+# GM 目录：128 件音色的按需注册
+# ---------------------------------------------------------------------------
+
+
+def catalog_entry(name: str) -> dict[str, Any] | None:
+    """按名称（注册键 / GM 包名 / 中英文名 / 别名）从目录取一个注册表条目。"""
+    program = gm_catalog.lookup(name)
+    return program.registry_entry() if program else None
+
+
+def catalog_keys() -> list[str]:
+    """目录里全部 128 件乐器的注册键（GM 顺序）。"""
+    return [p.key for p in gm_catalog.PROGRAMS]
+
+
+def ensure(
+    entries: list[dict[str, Any]],
+    names: list[str],
+    *,
+    persist: bool = True,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """把目录中已存在、但注册表里还没有的乐器补进来。
+
+    返回 ``(新增条目, 找不到的名称)``。已经在注册表里的名称不算新增。
+    这样用户只要点名一件目录里的乐器，它就会变成正式注册项，
+    后续 ``fetch`` / 渲染 / 界面都能按正常乐器处理，而不是退回合成器。
+    """
+    added: list[dict[str, Any]] = []
+    unknown: list[str] = []
+    existing_keys = {e["key"] for e in entries}
+    existing_gm = {str(e.get("gm") or "") for e in entries}
+    for raw in names:
+        program = gm_catalog.lookup(raw)
+        if program is None:
+            unknown.append(raw)
+            continue
+        if program.key in existing_keys or program.gm in existing_gm:
+            continue
+        entry = _normalize(program.registry_entry())
+        entries.append(entry)
+        existing_keys.add(entry["key"])
+        existing_gm.add(program.gm)
+        added.append(entry)
+    if added and persist:
+        save(entries)
+    return added, unknown
+
+
+def ensure_from_entry(entries: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """确保单件乐器在注册表里，返回它的条目（已在则直接返回）。"""
+    program = gm_catalog.lookup(name)
+    if program is None:
+        return None
+    found = find(entries, program.key)
+    if found is not None:
+        return found
+    added, _ = ensure(entries, [name])
+    return added[0] if added else find(entries, program.key)
+
 
 
 def remove(entries: list[dict[str, Any]], key: str) -> dict[str, Any]:
