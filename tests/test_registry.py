@@ -101,9 +101,11 @@ class RegistryTests(_RegistryCase):
         self.assertEqual(SampleInstrument("flute").instrument_gain, 8.5)
         source = fetch.SOURCES["flute"]
         self.assertEqual((source.midi_low, source.midi_high), (60, 96))
-        self.assertEqual(source.mirror_count, 4)
+        self.assertEqual(source.mirror_count, 5)
         self.assertIn("{name}", source.url_templates[0])
-        self.assertEqual(fetch.instrument_status("flute"), (0, 37))
+        # 用空的缓存目录断言，避免受开发机已下载的采样影响
+        empty_cache = Path(tempfile.mkdtemp(prefix="musicgen_cache_"))
+        self.assertEqual(fetch.instrument_status("flute", empty_cache), (0, 37))
 
     def test_custom_urls(self) -> None:
         spec = dict(FLUTE)
