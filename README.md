@@ -7,7 +7,7 @@ MusicGen 是一个**用命令行驱动的多轨编曲渲染工具**：把一个 
 - **工程即文本**：一个工程文件 + 每条音轨一个文件，可读、可手改、可进 Git，适合脚本化批量生成。
 - **多轨混音**：每轨独立控制乐器、速度、音量、声像、混响、循环与移调；可把多轨汇入**编组总线**统一推子与效果链，也能按比例**发送**到混响 / 延迟返回总线，最后走母带效果与归一化。
 - **轨道组与自动化**：可把几条轨道编成组，组上挂效果与曲线；增益、声像、效果参数都能用**多段贝塞尔曲线**随时间变化，曲线可同时作用于轨道与组并叠加；效果支持**只在一段时间生效**。
-- **音效链**：20 个音效——立体、回声、淡入淡出、电音、8bit / 4bit / 2bit、均衡、失真、压缩、合唱、滤波、颤音、自动声像、镶边、相位、磁带、限制、噪声门、混响；可挂在音轨、总线或母带上，整条链还能存成 `.fx.json` 复用。
+- **音效链**：20 个音效——立体、回声、淡入淡出、电音、8bit / 4bit / 2bit、均衡、失真、压缩、合唱、滤波、颤音、自动声像、镶边、相位、磁带、限制、噪声门、混响；可挂在音轨、轨道组、总线或母带上，还能用 `start` / `end` 只在一段拍内生效，整条链可存成 `.fx.json` 复用。
 - **MIDI 导出**：`export-midi` 把工程写成 SMF type 1（多轨、通道、GM 音色、弯音、循环展开），也可以每轨单独一个文件，直接进 DAW 继续编曲。
 - **三种入口**：`musicgen` 命令行（渲染、校验、建轨、改音符、调音效、管乐器）、桌面界面（钢琴卷帘、分轨卷帘、波形、电平表、试听），以及 **AI Skill**——仓库自带 `Skill/musicgen` 技能包，AI 助手说清需求就能一路做到 WAV，见 [§2.7](#27-ai-skill)。
 - **音频逆向**：`musicgen analyze song.mp3 -o songs/Song` 把成品歌曲拆成人声 / 鼓 / 贝斯 / 钢琴 / 吉他 / 其他，人声整条作为音频轨原样保留，其余分轨用 FFT 转谱、按音色识别乐器；默认「精确回放」按原始起音切立体声块，块外由 `beds/` 补全轨原样填回，**默认状态与原分轨逐样本一致，改某个音符才只影响那一处**，最后写出可继续编辑、可直接渲染的 `*.musicproj`；还能按音区拆层、切分段落、输出 `reverse_brief.json` 交给大模型判断，再用 `--decisions` 回灌换音色/效果。
@@ -49,7 +49,7 @@ py -3 -m musicgen render examples\demo\demo.musicproj -o demo.wav
 py -3 -m musicgen gui examples\demo\demo.musicproj   :: 打开界面
 ```
 
-仓库自带 7 个示例工程：
+仓库自带 8 个示例工程：
 
 | 示例 | 内容 |
 | --- | --- |
@@ -115,6 +115,22 @@ python -m musicgen synth render analog_lead -o out\lead.wav --midi 60,64,67
 python -m musicgen synth new -o songs\Song\synths\pad.synth.json --preset warm_pad --label 暖垫
 python -m musicgen instrument add airpad --name 空气垫 --synth warm_pad --low 48 --high 96
 
+:: 混音进阶：编组总线 / 轨道组 / 自动化曲线
+python -m musicgen bus list songs\Song\Song.musicproj
+python -m musicgen bus add songs\Song\Song.musicproj --name Drums --gain -1dB
+python -m musicgen bus add songs\Song\Song.musicproj --name Reverb --gain -4dB
+python -m musicgen bus send songs\Song\Song.musicproj --track Piano --to Reverb --amount 0.28
+python -m musicgen group add songs\Song\Song.musicproj --name Kit --gain -2dB --bus Drums
+python -m musicgen group assign songs\Song\Song.musicproj --track 1 --group Kit
+python -m musicgen curve set songs\Song\Song.musicproj --track Piano --target gain --points "0:-12; 8:0; 32:-20"
+python -m musicgen curve set songs\Song\Song.musicproj --track Pad --target effect.0.freq --points "0:300; 16:4200; 32:500"
+python -m musicgen curve set songs\Song\Song.musicproj --group Kit --target pan --points "0:-0.5; 8:0.5; 16:-0.5"
+python -m musicgen curve list songs\Song\Song.musicproj
+
+:: 导出 MIDI（进 DAW 继续编曲）
+python -m musicgen export-midi songs\Song\Song.musicproj -o out\song.mid
+python -m musicgen export-midi songs\Song\Song.musicproj --split out\midi
+
 :: 从音频重建工程（Demucs 分离 + FFT 转谱 + 音色识别）
 python -m musicgen analyze song.mp3 -o songs\Song
 python -m musicgen analyze song.mp3 -o songs\Song --bpm 96 --quantize 1/16 --force
@@ -135,7 +151,13 @@ python -m musicgen analyze song.mp3 -o songs\Reverse --decisions songs\Reverse\d
 <!-- demo.musicproj：一个工程 + 每轨一个文件 -->
 <musicproj name="Nocturne in A minor" bpm="84" sampleRate="44100" length="auto">
   <track file="tracks/violin.track.xml"/>
-  <track file="tracks/drums.track.xml" gain="-2dB"/>
+  <track file="tracks/drums.track.xml" gain="-2dB" group="Kit"/>
+
+  <!-- 轨道组：几条轨道先汇成一条信号，再统一走组效果、组推子与组曲线 -->
+  <group name="Kit" gain="-2dB">
+    <effect type="compressor" threshold="-18" ratio="4"/>
+    <automation target="gain" points="0:0; 24:0; 32:-30"/>
+  </group>
 </musicproj>
 
 <!-- tracks/violin.track.xml：乐器可写键名或中文名 -->
@@ -162,8 +184,9 @@ python -m musicgen analyze song.mp3 -o songs\Reverse --decisions songs\Reverse\d
 </track>
 ```
 
-时值单位是「拍」，支持 `1/4` 与 `0.5` 两种写法，也支持 `1/3` 三连音；循环轨用 `loop="true" loopLen="4"` 平铺整首。
+时值单位是「拍」，支持 `1/4` 与 `0.5` 两种写法，也支持 `1/3` 三连音；循环轨写 `period="4" repeat="8"` 平铺（等价旧写法 `loop="true" loopLen="4"`，`repeat="0"` 表示一直重复到结束），另可用 `gap` 留空拍、`offset` 把整轨错开。
 音效写在音符前面、按出现顺序串联：`<effect type="echo" time="375" feedback="0.3" mix="0.22"/>`，
+加上 `start` / `end` 就只在这段拍内生效；`<automation target="gain" points="0:0; 8:-6; 16:0"/>` 用多段贝塞尔曲线让增益、声像或效果参数随时间变化，曲线可以挂在轨道、组、总线上。
 类型与参数用 `python -m musicgen effect types` 查看。
 完整字段规范见 [项目文档](docs/项目文档.md)。
 
@@ -396,12 +419,55 @@ python -m musicgen samples fetch --instrument 双簧管,失真吉他
 </track>
 ```
 
-- 信号顺序：音符 → 轨道增益 → 轨道混响 → 声像 → 轨道效果 → 归属总线 / 发送 → 总线效果 → 总线推子 → 母带 → 归一化
+- 信号顺序：音符 → 轨道增益 → 轨道混响 → 声像 → 轨道效果 → 组效果 → 组推子 → 归属总线 / 发送 → 总线效果 → 总线推子 → 母带 → 归一化
 - 发送是 **post-fader**：推子拉下来，送到混响的量同比减少
 - 总线之间不再互相发送，结构上不可能出现反馈环；总线按工程里的出现顺序处理
 - 总线可静音；引用了不存在的总线时 `validate` 给警告，渲染仍继续（该轨直接并入母带）
 - 命令行：`bus list / add / set / remove / send / unsend`；`effect add --bus Drums --type compressor` 直接给总线挂效果
 - 完整可跑例子：`examples/mixbus`（鼓组压缩 + 磁带、音乐总线 EQ + 立体、混响与延迟两条返回、母带限制）
+
+#### 轨道组（已实现）
+
+组在**总线之前**汇总，是编曲层的容器：组内轨道各自处理完后合成一条组信号，再统一走组效果链、组推子与组自动化，最后交给组的 `bus`。
+
+```xml
+<group name="Kit" gain="-2dB" pan="0" bus="Drums">
+  <effect type="compressor" threshold="-18" ratio="4" makeup="2"/>
+  <effect type="tape" drive="0.25" mix="0.45"/>
+  <automation target="gain" points="0:0; 24:0; 32:-30"/>
+</group>
+<track file="tracks/kick.track.xml" group="Kit"/>
+```
+
+- 轨道用 `group="名"` 归组；归组后该轨自己的 `bus` 不再生效（去向由组决定），但 `send` 仍然有效
+- 轨道效果与组效果是**叠加**关系：先轨道链、再组链，互不覆盖
+- 组不嵌套、不接收 `send`；组名与总线名相同也不冲突（两套独立命名空间）
+- 命令行：`group list / add / set / remove / assign`
+- 例子：`examples/groupcurve`（鼓组压缩 + 磁带、组增益收尾、hat 声像摆动）
+
+#### 自动化曲线与部分音效（已实现）
+
+```xml
+<!-- 0 拍 0dB → 8 拍 −6dB → 16 拍回 0；每段是三次贝塞尔，段间 C1 连续 -->
+<automation target="gain" points="0:0; 8:-6; 16:0"/>
+<!-- 低通中心频率从 300Hz 扫到 4.2kHz -->
+<automation target="effect.0.freq" points="0:300; 16:4200; 32:500"/>
+<!-- 回声只在 24–32 拍 -->
+<effect type="echo" time="250" mix="0.4" start="24" end="32"/>
+```
+
+| target | 语义 | 位置 |
+| --- | --- | --- |
+| `gain` | **相对 dB**，叠加在静态 `gain` 上 | 轨道 / 组 / 总线推子，逐样本包络 |
+| `pan` | 相对量，夹到 ±1 | 声像，逐样本等功率 |
+| `effect.<序号>.<参数>` | **绝对值覆盖**（序号从 0 起） | 效果内部，93ms 分块重算 |
+
+- 曲线可挂在轨道、组、总线；轨道与组的同类曲线是**两级推子叠加**
+- `mode` 可选 `bezier`（默认）/ `linear` / `step`，`tension` 调张力；也能用 `<point time value in out>` 写显式控制柄
+- 效果参数曲线适合滤波、失真、干湿这类参数；`echo` / `reverb` 这种长尾改用 `start` / `end` 区间
+- 区间边界 20ms 淡入淡出，区间外**原样通过干声**
+- 命令行：`curve list / set / remove`（`--track` / `--group` / `--bus` 指定挂载对象）
+- 例子：`examples/groupcurve`（组增益收尾曲线、hat 声像摆动、pad 低通扫频、回声只在末段）
 
 ### 3.4 合成音脚本（已实现）
 
@@ -449,7 +515,7 @@ python -m musicgen samples fetch --instrument 双簧管,失真吉他
 **编曲与编辑**
 
 - [ ] `P0` **撤销 / 重做**：界面每次编辑直接写回 XML，改错了只能手改文件或重开工程
-- [ ] `P1` **自动化曲线**：音量、声像、效果参数随时间变化（渐强渐弱、声像扫），现在只能整轨一个定值，渐变要靠 `fade` 效果或另开一条轨
+- [x] `P1` **自动化曲线**：增益、声像、效果参数都能用多段贝塞尔曲线随时间变化（渐强渐弱、声像扫、滤波扫频），可挂在轨道、组、总线并叠加，见 §3.3
 - [ ] `P1` **轨道复制 / 排序**：音符可以 `Ctrl+D` 复制，整条音轨不行，也不能在列表里拖动顺序
 - [ ] `P2` **速度渐变（tempo map）**：目前只有全局 BPM + 逐轨 BPM
 - [ ] `P2` **延音踏板与连奏**：弦乐揉弦、铜管滑音、钢琴 una corda 踏板
@@ -461,6 +527,7 @@ python -m musicgen samples fetch --instrument 双簧管,失真吉他
 
 - [x] `P0` **轨道电平表**：传输条有 L/R 主电平表，分轨卷帘每条轨头也有小电平条（渲染时按 50ms 包络算）
 - [x] `P1` **总线与母带效果**：编组总线、发送 / 返回（混响、延迟）、母带限制器均已实现，见 §3.3
+- [x] `P1` **轨道组**：几条轨道先汇总成一条组信号，组上挂效果、推子与曲线，再交给总线；轨道效果与组效果叠加
 - [ ] `P1` **并联压缩**：把一条轨同时送干声与重压缩副本，靠两条总线手动搭，还没有专用控件
 - [ ] `P2` **自定义音色**：导入自己的采样（WAV/AIFF），自定义键位映射、循环点、力度分层与包络，而不只是套用 GM 音色
 - [ ] `P2` **更多音色**：长笛、单簧管、弦乐群、电钢琴、贝斯等

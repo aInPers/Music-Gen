@@ -100,7 +100,7 @@ def cmd_group_assign(args: argparse.Namespace) -> int:
     ref = te.assign_group(_project_path(args), args.track, args.group)
     if args.group:
         print(f"已把「{ref.name}」放进组「{args.group}」")
-        print("  提示：进组后该轨自身的总线归属与发送不再生效，改由组决定去向。")
+        print("  提示：进组后该轨自身的总线归属不再生效（去向由组决定），发送仍然有效。")
     else:
         print(f"已把「{ref.name}」移出组")
     return 0
