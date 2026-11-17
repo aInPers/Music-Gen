@@ -24,6 +24,7 @@ from . import __version__
 from .analysis import AnalysisError
 from .cli_analyze import register_analyze_command
 from .cli_bus import register_bus_commands
+from .cli_group import register_curve_commands, register_group_commands
 from .cli_effects import register_effect_commands
 from .cli_instruments import RegistryError, register_instrument_commands
 from .synth_cli import register_synth_commands
@@ -287,6 +288,8 @@ def cmd_render(args: argparse.Namespace) -> int:
             print(f"    · {stat.name} [音频] 峰值 {stat.peak:.3f}{rms}{effects}")
         elif stat.kind == "bus":
             print(f"    · {stat.name} [总线] 峰值 {stat.peak:.3f}{rms}{effects}")
+        elif stat.kind == "group":
+            print(f"    · {stat.name} [组] 峰值 {stat.peak:.3f}{rms}{effects}")
         else:
             print(f"    · {stat.name} [{stat.instrument}] 音符 {stat.notes} "
                   f"峰值 {stat.peak:.3f}{rms}{effects}")
@@ -595,6 +598,8 @@ def build_parser() -> argparse.ArgumentParser:
     register_instrument_commands(sub)
     register_effect_commands(sub)
     register_bus_commands(sub)
+    register_group_commands(sub)
+    register_curve_commands(sub)
     register_synth_commands(sub)
     register_analyze_command(sub)
     return parser

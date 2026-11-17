@@ -114,7 +114,10 @@ def cmd_effect_add(args: argparse.Namespace) -> int:
         if bus is not None:
             print(f"  当前效果链：{' → '.join(s.label() for s in bus.effects)}")
         return 0
-    ref, spec = te.add_effect(_project_path(args), args.track, args.type, params)
+    start = te.parse_beats(args.start, "start") if getattr(args, "start", None) else None
+    end = te.parse_beats(args.end, "end") if getattr(args, "end", None) else None
+    ref, spec = te.add_effect(_project_path(args), args.track, args.type, params,
+                              start=start, end=end)
     print(f"已为音轨 {ref.index}. {ref.name} 添加音效：{spec.label()}（{spec.type}）")
     print(f"  参数：{spec.summary()}")
     if not params:
@@ -250,6 +253,8 @@ def register_effect_commands(sub) -> None:
     p_add.add_argument("--type", required=True,
                        help="音效类型见 `effect types`，如 echo / compressor / limiter / reverb")
     _add_params(p_add, "参数，可重复，如 -p time=450 -p mix=0.3；不给则全用默认值")
+    p_add.add_argument("--start", default=None, help="只在这拍之后生效（部分音效）")
+    p_add.add_argument("--end", default=None, help="只在这拍之前生效")
     p_add.set_defaults(func=cmd_effect_add)
 
     p_set = effect_sub.add_parser("set", help="修改第 N 个音效的参数")

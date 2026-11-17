@@ -83,6 +83,23 @@ def _changes_from(args: argparse.Namespace) -> dict:
     appeared, value = _optional_beats(args.loop_len, "loopLen")
     if appeared:
         changes["loop_len"] = value
+    if getattr(args, "period", None) is not None:
+        appeared, value = _optional_beats(args.period, "period")
+        if appeared:
+            changes["loop_len"] = value
+    if getattr(args, "repeat", None) is not None:
+        changes["loop_count"] = int(_number(args.repeat, "repeat", 0, 10000))
+    if getattr(args, "offset", None) is not None:
+        appeared, value = _optional_beats(args.offset, "offset")
+        if appeared:
+            changes["offset"] = value or 0.0
+    if getattr(args, "gap", None) is not None:
+        appeared, value = _optional_beats(args.gap, "gap")
+        if appeared:
+            changes["gap"] = value or 0.0
+    if getattr(args, "group", None) is not None:
+        text = str(args.group).strip()
+        changes["group"] = None if text.lower() in ("none", "-", "") else text
     return changes
 
 
@@ -303,6 +320,14 @@ def register_track_commands(sub) -> None:
     p_edit.add_argument("--loop-len", default=None,
                         help="循环周期（拍）；写 none 可删除该属性")
     p_edit.add_argument("--loop-count", default=None, help="循环次数，0 = 无限")
+    p_edit.add_argument("--period", default=None,
+                        help="循环周期（拍），与 --loop-len 等价")
+    p_edit.add_argument("--repeat", default=None, help="重复次数，与 --loop-count 等价")
+    p_edit.add_argument("--offset", default=None,
+                        help="整轨起点偏移（拍）：同一份谱子错开时间")
+    p_edit.add_argument("--gap", default=None, help="每次循环之间的空拍数")
+    p_edit.add_argument("--group", default=None,
+                        help="归入的轨道组；写 none 表示移出")
     p_edit.add_argument("--transpose", default=None, help="整体移调（半音）")
     p_edit.set_defaults(func=cmd_track_edit)
 
