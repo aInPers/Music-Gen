@@ -295,11 +295,23 @@ class EffectSpec:
 
     type: str
     params: dict[str, Any] = field(default_factory=dict)
+    #: 只在 ``[start, end)`` 拍内生效（None = 全程）。用来做「这一段才加混响」。
+    start: float | None = None
+    end: float | None = None
 
     def __post_init__(self) -> None:
         key = resolve_effect(self.type)
         if key is not None:
             self.type = key
+
+    @property
+    def ranged(self) -> bool:
+        return self.start is not None or self.end is not None
+
+    def range_text(self) -> str:
+        left = "0" if self.start is None else f"{self.start:g}"
+        right = "末" if self.end is None else f"{self.end:g}"
+        return f"{left}–{right} 拍"
 
     @property
     def cls(self) -> type[Effect]:
@@ -331,9 +343,17 @@ class EffectSpec:
             cls = self.cls
         except EffectError:
             attrs = {"type": self.type}
+            if self.start is not None:
+                attrs["start"] = f"{self.start:g}"
+            if self.end is not None:
+                attrs["end"] = f"{self.end:g}"
             attrs.update({str(k): str(v) for k, v in self.params.items()})
             return attrs
         attrs = {"type": self.type}
+        if self.start is not None:
+            attrs["start"] = f"{self.start:g}"
+        if self.end is not None:
+            attrs["end"] = f"{self.end:g}"
         for param in cls.PARAMS:
             if param.key in self.params:
                 attrs[param.key] = param.format(self.params[param.key])

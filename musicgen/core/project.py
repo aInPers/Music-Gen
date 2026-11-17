@@ -27,6 +27,7 @@ from .effects import (
     normalize_effect_params,
     resolve_effect,
 )
+from .automation import Curve, curve_from_element, curve_to_element
 from .notes import MIDI_MAX, MIDI_MIN, PitchError, midi_to_name, parse_pitches
 
 PROJECT_SUFFIX = ".musicproj"
@@ -94,6 +95,26 @@ class Bus:
     gain_db: float = 0.0
     mute: bool = False
     effects: list["EffectSpec"] = field(default_factory=list)
+    #: 总线级自动化（增益 / 声像 / 效果参数随时间变化）
+    automation: list[Curve] = field(default_factory=list)
+
+
+@dataclass
+class Group:
+    """轨道组：编曲层面的容器，先于总线汇总。
+
+    与总线的区别：组只做「把几条轨道捏成一条信号」再统一处理，输出继续走归属总线；
+    组可以带自动化曲线，组内轨道自身的处理照旧生效，两者叠加而不是互相覆盖。
+    """
+
+    name: str
+    gain_db: float = 0.0
+    pan: float = 0.0
+    mute: bool = False
+    #: 组输出的去向（None = 直接进母带）
+    bus: str | None = None
+    effects: list["EffectSpec"] = field(default_factory=list)
+    automation: list[Curve] = field(default_factory=list)
 
 
 @dataclass
@@ -120,9 +141,16 @@ class Track:
     audio_duration: float = 0.0     # 片段时长（秒），解析时读头部填入
     # 合成音脚本：instrument="synth" 时由它提供音色；相对路径相对音轨文件
     patch_path: Path | None = None
-    # 混音路由：归属总线（None = 直接进母带）与送往其它总线的发送量
+    # 混音路由：归属组 / 总线（None = 直接进母带）与送往其它总线的发送量
     bus: str | None = None
+    group: str | None = None
     sends: list[Send] = field(default_factory=list)
+    #: 自动化曲线（gain / pan / reverb / effect.<序号>.<参数> / send.<总线名>）
+    automation: list[Curve] = field(default_factory=list)
+    #: 整轨起点偏移（拍）：让同一份谱子在时间上错开
+    start_offset_beats: float = 0.0
+    #: 每次循环之间的空拍数（让重复有呼吸）
+    loop_gap_beats: float = 0.0
 
     # ---- 派生量 -------------------------------------------------------
     @property
@@ -168,6 +196,8 @@ class Project:
     master_effects: list[EffectSpec] = field(default_factory=list)
     #: 编组 / 返回总线（``<bus>``，按出现顺序处理）
     buses: list[Bus] = field(default_factory=list)
+    #: 轨道组（``<group>``，先于总线汇总）
+    groups: list[Group] = field(default_factory=list)
     tracks: list[Track] = field(default_factory=list)
     warnings: list[Issue] = field(default_factory=list)
 
@@ -183,6 +213,16 @@ class Project:
         for bus in self.buses:
             if bus.name.strip().lower() == wanted:
                 return bus
+        return None
+
+    def find_group(self, name: str | None) -> Group | None:
+        """按名字找轨道组（大小写不敏感）；没有返回 None。"""
+        if not name:
+            return None
+        wanted = str(name).strip().lower()
+        for group in self.groups:
+            if group.name.strip().lower() == wanted:
+                return group
         return None
 
     # ---- 时长计算 -----------------------------------------------------
@@ -208,7 +248,9 @@ class Project:
             bpm = track.resolve_bpm(self.bpm)
             beats = track.period_beats(self.beats_per_bar)
             if track.loop and track.loop_count > 0:
-                beats *= track.loop_count
+                step = beats + max(0.0, track.loop_gap_beats)
+                beats = step * track.loop_count - max(0.0, track.loop_gap_beats)
+            beats += max(0.0, track.start_offset_beats)
             longest = max(longest, beats * 60.0 / bpm)
         if longest <= 0.0:
             # 全部是无限循环轨：默认取 4 小节长度
@@ -332,7 +374,7 @@ def _parse_effect_element(el, label: str, issues: list[Issue]) -> "EffectSpec | 
             )
         )
         return None
-    raw = {k: v for k, v in el.attrib.items() if k != "type"}
+    raw = {k: v for k, v in el.attrib.items() if k not in ("type", "start", "end", "from", "to")}
     try:
         params, problems = normalize_effect_params(key, raw)
     except EffectError as exc:
@@ -340,7 +382,23 @@ def _parse_effect_element(el, label: str, issues: list[Issue]) -> "EffectSpec | 
         return None
     for problem in problems:
         issues.append(Issue("warning", label, problem))
-    return EffectSpec(key, params)
+    start = end = None
+    for attr, setter in (("start", "start"), ("from", "start"), ("end", "end"), ("to", "end")):
+        if el.get(attr) is None:
+            continue
+        try:
+            value = _parse_beats(el.get(attr), attr)
+        except ValueError as exc:
+            issues.append(Issue("warning", label, f"{attr} 无效: {exc}"))
+            continue
+        if setter == "start":
+            start = max(0.0, value)
+        else:
+            end = max(0.0, value)
+    if start is not None and end is not None and end <= start:
+        issues.append(Issue("warning", label, f"音效区间 {start:g}–{end:g} 拍为空，按全程处理"))
+        start = end = None
+    return EffectSpec(key, params, start=start, end=end)
 
 
 def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> Track:
@@ -391,6 +449,8 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
 
     if root.get("bus"):
         track.bus = root.get("bus").strip() or None
+    if root.get("group"):
+        track.group = root.get("group").strip() or None
     if root.get("bpm"):
         try:
             track.bpm = _parse_number(root.get("bpm"), "bpm")
@@ -403,11 +463,26 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
             track.loop = _parse_bool(root.get("loop"))
         except ValueError as exc:
             issues.append(Issue("warning", where, str(exc)))
-    if root.get("loopLen") is not None:
+    period_attr = root.get("period") or root.get("loopLen")
+    if period_attr is not None:
         try:
-            track.loop_len = _parse_beats(root.get("loopLen"), "loopLen")
+            track.loop_len = _parse_beats(period_attr, "period")
         except ValueError as exc:
             issues.append(Issue("warning", where, str(exc)))
+    if period_attr is not None or root.get("repeat") or root.get("loopCount"):
+        track.loop = True  # 写了周期/次数就是要循环，不必再单独开 loop
+    repeat_attr = root.get("repeat") or root.get("loopCount")
+    if repeat_attr is not None:
+        try:
+            track.loop_count = int(_parse_number(repeat_attr, "repeat"))
+        except ValueError as exc:
+            issues.append(Issue("warning", where, str(exc)))
+    for attr, fieldname in (("offset", "start_offset_beats"), ("gap", "loop_gap_beats")):
+        if root.get(attr) is not None:
+            try:
+                setattr(track, fieldname, max(0.0, _parse_beats(root.get(attr), attr)))
+            except ValueError as exc:
+                issues.append(Issue("warning", where, str(exc)))
     for attr, fieldname in (("mute", "mute"), ("solo", "solo")):
         if root.get(attr) is not None:
             try:
@@ -450,6 +525,13 @@ def _parse_track_file(path: Path, issues: list[Issue], defaults_bpm: float) -> T
             sent = _parse_send_element(el, f"{where} 第 {index + 1} 个 <send>", issues)
             if sent is not None:
                 track.sends.append(sent)
+            continue
+        if el.tag == "automation":
+            curve = curve_from_element(
+                el, f"{where} 第 {index + 1} 条 <automation>", issues
+            )
+            if curve is not None:
+                track.automation.append(curve)
             continue
         if el.tag != "note":
             if el.tag not in ("comment", "meta"):
@@ -586,7 +668,61 @@ def load_project(path: str | Path) -> Project:
                 )
                 if spec is not None:
                     bus.effects.append(spec)
+            for curve_index, curve_el in enumerate(el.findall("automation")):
+                curve = curve_from_element(
+                    curve_el, f"{label} 第 {curve_index + 1} 条 <automation>", issues
+                )
+                if curve is not None:
+                    bus.automation.append(curve)
             project.buses.append(bus)
+        # 轨道组：先于总线汇总，组内轨道自身处理照旧生效
+        seen_groups: set[str] = set()
+        for index, el in enumerate(root.findall("group")):
+            label = f"{project_path.name} 第 {index + 1} 个 <group>"
+            name = (el.get("name") or "").strip()
+            if not name:
+                issues.append(Issue("error", label, "缺少 name 属性"))
+                continue
+            key = name.lower()
+            if key in seen_groups:
+                issues.append(Issue("error", label, f"组名「{name}」重复，路由会有歧义"))
+                continue
+            if key in seen_buses:
+                issues.append(
+                    Issue("warning", label, f"组名「{name}」与总线同名，注意区分（两者不冲突）")
+                )
+            seen_groups.add(key)
+            group = Group(name=name)
+            if el.get("gain") is not None:
+                try:
+                    group.gain_db = _parse_gain_db(el.get("gain"))
+                except ValueError as exc:
+                    issues.append(Issue("warning", label, f"gain 无效: {exc}"))
+            if el.get("pan") is not None:
+                try:
+                    group.pan = max(-1.0, min(1.0, _parse_number(el.get("pan"), "pan")))
+                except ValueError as exc:
+                    issues.append(Issue("warning", label, f"pan 无效: {exc}"))
+            if el.get("mute") is not None:
+                try:
+                    group.mute = _parse_bool(el.get("mute"))
+                except ValueError as exc:
+                    issues.append(Issue("warning", label, str(exc)))
+            if el.get("bus"):
+                group.bus = el.get("bus").strip() or None
+            for effect_index, effect_el in enumerate(el.findall("effect")):
+                spec = _parse_effect_element(
+                    effect_el, f"{label} 第 {effect_index + 1} 个 <effect>", issues
+                )
+                if spec is not None:
+                    group.effects.append(spec)
+            for curve_index, curve_el in enumerate(el.findall("automation")):
+                curve = curve_from_element(
+                    curve_el, f"{label} 第 {curve_index + 1} 条 <automation>", issues
+                )
+                if curve is not None:
+                    group.automation.append(curve)
+            project.groups.append(group)
         if root.get("length") is not None:
             project.length_spec = root.get("length").strip()
         if root.get("tail") is not None:
@@ -646,6 +782,8 @@ def load_project(path: str | Path) -> Project:
         # 工程层可以覆盖音轨归属，并追加发送；轨道文件里的同名发送会被这里覆盖
         if el.get("bus") is not None:
             track.bus = (el.get("bus").strip() or None)
+        if el.get("group") is not None:
+            track.group = (el.get("group").strip() or None)
         for send_index, send_el in enumerate(el.findall("send")):
             sent = _parse_send_element(
                 send_el, f"{file_attr} 第 {send_index + 1} 个 <send>", issues
@@ -661,10 +799,16 @@ def load_project(path: str | Path) -> Project:
                 track.sends.append(sent)
         project.tracks.append(track)
 
-    # ---- 路由校验：引用的总线必须存在，否则渲染时只能兜底 ----
+    # ---- 路由校验：引用的组 / 总线必须存在，否则渲染时只能兜底 ----
     bus_names = {bus.name.strip().lower() for bus in project.buses}
+    group_names = {group.name.strip().lower() for group in project.groups}
     for track in project.tracks:
         where = track.path.name if track.path else track.name
+        if track.group and track.group.strip().lower() not in group_names:
+            issues.append(
+                Issue("warning", where,
+                      f"归属组「{track.group}」不存在，该组处理会被跳过")
+            )
         if track.bus and track.bus.strip().lower() not in bus_names:
             issues.append(
                 Issue("warning", where,
@@ -741,9 +885,13 @@ def save_track(track: Track, path: Path | None = None) -> Path:
     if track.loop:
         root.set("loop", "true")
         if track.loop_len:
-            root.set("loopLen", f"{track.loop_len:g}")
+            root.set("period", f"{track.loop_len:g}")
         if track.loop_count:
-            root.set("loopCount", str(track.loop_count))
+            root.set("repeat", str(track.loop_count))
+    if track.start_offset_beats:
+        root.set("offset", f"{track.start_offset_beats:g}")
+    if track.loop_gap_beats:
+        root.set("gap", f"{track.loop_gap_beats:g}")
     if track.mute:
         root.set("mute", "true")
     if track.solo:
@@ -760,11 +908,15 @@ def save_track(track: Track, path: Path | None = None) -> Path:
         root.set("patch", relative)
     if track.bus:
         root.set("bus", track.bus)
+    if track.group:
+        root.set("group", track.group)
     for sent in track.sends:
         if sent.amount > 0:
             ET.SubElement(root, "send", {"bus": sent.bus, "amount": f"{sent.amount:g}"})
     for spec in track.effects:
         ET.SubElement(root, "effect", spec.to_attrs())
+    for curve in track.automation:
+        curve_to_element(root, curve)
     if track.audio_path is not None:
         import os
 
@@ -819,6 +971,19 @@ def describe(project: Project) -> str:
     ]
     if project.master_effects:
         lines.append("  母带效果: " + " → ".join(spec.label() for spec in project.master_effects))
+    for group in project.groups:
+        members = [t.name for t in project.tracks
+                   if (t.group or "").strip().lower() == group.name.strip().lower()]
+        chain = " → ".join(spec.label() for spec in group.effects)
+        bits = [f"组 {group.name}", f"{group.gain_db:+g}dB"]
+        if chain:
+            bits.append("效果 " + chain)
+        if group.bus:
+            bits.append(f"→ {group.bus}")
+        if group.automation:
+            bits.append(f"{len(group.automation)} 条曲线")
+        bits.append("轨道 " + ("、".join(members) if members else "（空）"))
+        lines.append("  " + " | ".join(bits))
     for i, track in enumerate(project.tracks, 1):
         bpm = track.resolve_bpm(project.bpm)
         if track.audio_path is not None:

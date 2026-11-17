@@ -58,8 +58,11 @@ _TRACK_ATTRS: dict[str, tuple[str, Any]] = {
     "pan": ("pan", lambda v: f"{float(v):g}"),
     "reverb": ("reverb", lambda v: f"{float(v):g}"),
     "bpm": ("bpm", lambda v: f"{float(v):g}"),
-    "loop_len": ("loopLen", lambda v: f"{float(v):g}"),
-    "loop_count": ("loopCount", lambda v: str(int(v))),
+    "loop_len": ("period", lambda v: f"{float(v):g}"),
+    "loop_count": ("repeat", lambda v: str(int(v))),
+    "group": ("group", lambda v: str(v).strip()),
+    "offset": ("offset", lambda v: f"{float(v):g}"),
+    "gap": ("gap", lambda v: f"{float(v):g}"),
     "transpose": ("transpose", lambda v: str(int(v))),
     "loop": ("loop", lambda v: "true" if v else None),
     "mute": ("mute", lambda v: "true" if v else None),
@@ -363,7 +366,8 @@ def edit_track(
         attr_name, formatter = _TRACK_ATTRS[field]
         old = root.get(attr_name) or "（默认）"
         new_value = None if value is None else formatter(value)
-        if new_value is None or (field in ("transpose", "loop_count") and str(value) in ("0", "0.0")):
+        if new_value is None or (field in ("transpose", "loop_count", "offset", "gap")
+                                 and str(value) in ("0", "0.0")):
             root.attrib.pop(attr_name, None)
             shown = "（删除）"
         else:
@@ -471,6 +475,8 @@ def add_effect(
     selector: str | int,
     type_name: str,
     params: dict[str, Any] | None = None,
+    start: float | None = None,
+    end: float | None = None,
 ) -> tuple[TrackRef, EffectSpec]:
     """给音轨追加一个效果，返回 ``(轨道信息, 效果条目)``。"""
     project_path = Path(project_path).expanduser().resolve()
@@ -485,7 +491,9 @@ def add_effect(
     except EffectError as exc:
         raise TrackEditError(str(exc)) from None
 
-    spec = EffectSpec(key, values)
+    if start is not None and end is not None and end <= start:
+        raise TrackEditError(f"音效区间 {start:g}–{end:g} 拍为空")
+    spec = EffectSpec(key, values, start=start, end=end)
     tree = _tree(track.path)
     root = tree.getroot()
     _insert_effect(root, ET.Element("effect", spec.to_attrs()))
@@ -997,3 +1005,248 @@ def remove_bus_effect(project_path: str | Path, bus_name: str, index: int) -> di
     bus_el.remove(element)
     _write(tree, path)
     return attributes
+
+
+# ---------------------------------------------------------------------------
+# 轨道组（group）
+# ---------------------------------------------------------------------------
+
+
+def _group_element(root: ET.Element, name: str) -> ET.Element | None:
+    wanted = str(name).strip().lower()
+    for el in root.findall("group"):
+        if (el.get("name") or "").strip().lower() == wanted:
+            return el
+    return None
+
+
+def find_group_element(project_path: str | Path, name: str) -> ET.Element | None:
+    """按名字找工程文件里的 ``<group>`` 节点。"""
+    _, tree, root = _project_tree(project_path)
+    return _group_element(root, name)
+
+
+def add_group(
+    project_path: str | Path,
+    name: str,
+    gain_db: float | None = None,
+    pan: float | None = None,
+    bus: str | None = None,
+) -> str:
+    """新建一个轨道组；重名直接报错。"""
+    project_path = Path(project_path).expanduser().resolve()
+    label = str(name).strip()
+    if not label:
+        raise TrackEditError("组名不能为空")
+    _, tree, root = _project_tree(project_path)
+    if _group_element(root, label) is not None:
+        raise TrackEditError(f"组「{label}」已经存在")
+    attrs = {"name": label}
+    if gain_db is not None:
+        attrs["gain"] = f"{float(gain_db):+g}dB"
+    if pan is not None:
+        attrs["pan"] = f"{float(pan):g}"
+    if bus:
+        attrs["bus"] = str(bus).strip()
+    element = ET.Element("group", attrs)
+    # 组插在所有 <track> 之前，与 <bus> 排在一起
+    insert_at = len(root)
+    for index, child in enumerate(root):
+        if child.tag == "track":
+            insert_at = index
+            break
+    root.insert(insert_at, element)
+    _write(tree, project_path)
+    return label
+
+
+def set_group(project_path: str | Path, name: str, **changes: Any) -> list[tuple[str, str, str]]:
+    """改组的 gain / pan / bus / mute；值为 None 表示删除该属性。"""
+    project_path = Path(project_path).expanduser().resolve()
+    _, tree, root = _project_tree(project_path)
+    element = _group_element(root, name)
+    if element is None:
+        raise TrackEditError(f"组「{name}」不存在")
+    mapping = {
+        "gain_db": ("gain", lambda v: f"{float(v):+g}dB"),
+        "pan": ("pan", lambda v: f"{float(v):g}"),
+        "bus": ("bus", lambda v: str(v).strip()),
+        "mute": ("mute", lambda v: "true" if v else None),
+    }
+    unknown = set(changes) - set(mapping)
+    if unknown:
+        raise TrackEditError(f"不支持修改的字段：{'、'.join(sorted(unknown))}")
+    applied: list[tuple[str, str, str]] = []
+    for field, value in changes.items():
+        if value is MISSING:
+            continue
+        attr, formatter = mapping[field]
+        old = element.get(attr) or "（默认）"
+        new_value = None if value is None else formatter(value)
+        if new_value is None:
+            element.attrib.pop(attr, None)
+            shown = "（删除）"
+        else:
+            element.set(attr, str(new_value))
+            shown = str(new_value)
+        applied.append((field, old, shown))
+    _write(tree, project_path)
+    return applied
+
+
+def remove_group(project_path: str | Path, name: str, force: bool = False) -> int:
+    """删组。组内还有轨道时默认拒绝，``force`` 才清引用。"""
+    project_path = Path(project_path).expanduser().resolve()
+    project = _load(project_path)
+    wanted = str(name).strip().lower()
+    members = [t for t in project.tracks if (t.group or "").strip().lower() == wanted]
+    if members and not force:
+        raise TrackEditError(
+            f"组「{name}」里还有 {len(members)} 条轨道，先移出或用 --force 强制删除"
+        )
+    # 轨道文件里的 group 引用先清掉（工程层覆盖也一并处理）
+    for track in members:
+        if track.path is None:
+            continue
+        ttree = _tree(track.path)
+        ttree.getroot().attrib.pop("group", None)
+        _write(ttree, track.path)
+    _, tree, root = _project_tree(project_path)
+    element = _group_element(root, name)
+    if element is None:
+        raise TrackEditError(f"组「{name}」不存在")
+    for el in root.findall("track"):
+        if (el.get("group") or "").strip().lower() == wanted:
+            el.attrib.pop("group", None)
+    root.remove(element)
+    _write(tree, project_path)
+    return len(members)
+
+
+def assign_group(project_path: str | Path, selector: str | int, group_name: str | None) -> TrackRef:
+    """把一条轨道归入某个组；``group_name=None`` 表示移出组。"""
+    project_path = Path(project_path).expanduser().resolve()
+    project = _load(project_path)
+    index, track = find_track(project, selector)
+    if track.path is None:
+        raise TrackEditError("这条音轨没有对应文件")
+    if group_name is not None:
+        _, _, root = _project_tree(project_path)
+        if _group_element(root, group_name) is None:
+            raise TrackEditError(f"组「{group_name}」不存在，先用 group add 建组")
+    tree = _tree(track.path)
+    root = tree.getroot()
+    if group_name is None:
+        root.attrib.pop("group", None)
+    else:
+        root.set("group", str(group_name).strip())
+    _write(tree, track.path)
+    clear_track_overrides(project_path, track.path, include_name=False)
+    updated = _load(project_path)
+    return _ref(updated, index, track.path, project_path)
+
+
+# ---------------------------------------------------------------------------
+# 自动化曲线（automation）
+# ---------------------------------------------------------------------------
+
+
+def _curve_scope_root(project_path: Path, scope: str, selector: str | None):
+    """返回 ``(要写回的 tree, 挂曲线的父节点, 目标路径)``。"""
+    scope = (scope or "track").strip().lower()
+    if scope == "track":
+        if selector is None:
+            raise TrackEditError("轨道曲线需要指定 --track")
+        project = _load(project_path)
+        _, track = find_track(project, selector)
+        if track.path is None:
+            raise TrackEditError("这条音轨没有对应文件")
+        tree = _tree(track.path)
+        return tree, tree.getroot(), track.path
+    _, tree, root = _project_tree(project_path)
+    if scope == "group":
+        element = _group_element(root, selector or "")
+        if element is None:
+            raise TrackEditError(f"组「{selector}」不存在")
+        return tree, element, project_path
+    if scope == "bus":
+        element = find_bus_element(root, selector or "")
+        if element is None:
+            raise TrackEditError(f"总线「{selector}」不存在")
+        return tree, element, project_path
+    raise TrackEditError(f"未知的作用域：{scope}（可用 track / group / bus）")
+
+
+def _strip_curve_nodes(parent: ET.Element, target: str) -> int:
+    wanted = target.strip().lower()
+    removed = 0
+    for el in list(parent):
+        if el.tag == "automation" and (el.get("target") or "").strip().lower() == wanted:
+            parent.remove(el)
+            removed += 1
+    return removed
+
+
+def set_curve(
+    project_path: str | Path,
+    scope: str,
+    selector: str | None,
+    target: str,
+    points: str,
+    mode: str = "bezier",
+    tension: float = 0.5,
+) -> str:
+    """写入（或替换）一条曲线，返回目标参数名。"""
+    from .automation import Curve, CurveError, curve_to_element, parse_points
+
+    project_path = Path(project_path).expanduser().resolve()
+    try:
+        parsed = parse_points(points)
+    except CurveError as exc:
+        raise TrackEditError(str(exc)) from None
+    if len(parsed) < 2:
+        raise TrackEditError("曲线至少要两个点，写成「0:0; 8:-6」")
+    curve = Curve(target=target, points=parsed, mode=mode, tension=float(tension))
+    tree, parent, path = _curve_scope_root(project_path, scope, selector)
+    _strip_curve_nodes(parent, target)
+    curve_to_element(parent, curve)
+    _write(tree, path)
+    return target
+
+
+def remove_curve(project_path: str | Path, scope: str, selector: str | None, target: str) -> int:
+    """删掉某条曲线，返回删除的节点数。"""
+    project_path = Path(project_path).expanduser().resolve()
+    tree, parent, path = _curve_scope_root(project_path, scope, selector)
+    removed = _strip_curve_nodes(parent, target)
+    if removed == 0:
+        raise TrackEditError(f"没有找到目标为「{target}」的曲线")
+    _write(tree, path)
+    return removed
+
+
+def list_curves(project_path: str | Path, scope: str = "all", selector: str | None = None):
+    """列出曲线：返回 ``[(作用域, 归属名, Curve), ...]``。"""
+    project_path = Path(project_path).expanduser().resolve()
+    project = _load(project_path)
+    out = []
+    scope = (scope or "all").strip().lower()
+    if scope in ("all", "track"):
+        for track in project.tracks:
+            if selector and str(track.name).lower() != str(selector).lower():
+                continue
+            for curve in track.automation:
+                out.append(("track", track.name, curve))
+    if scope in ("all", "group"):
+        for group in project.groups:
+            if selector and group.name.lower() != str(selector).lower():
+                continue
+            for curve in group.automation:
+                out.append(("group", group.name, curve))
+    if scope in ("all", "bus"):
+        for bus in project.buses:
+            if selector and bus.name.lower() != str(selector).lower():
+                continue
+            for curve in bus.automation:
+                out.append(("bus", bus.name, curve))
+    return out
