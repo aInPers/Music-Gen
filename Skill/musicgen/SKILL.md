@@ -11,9 +11,10 @@ description: 用 MusicGen 命令行把音乐需求做成可交付的 WAV——�
 底层是仓库自带的 `python -m musicgen`，不需要任何外部音乐库或在线服务。
 
 **能力边界**：13 件内置音色（钢琴 / 小提琴 / 大提琴 / 小号 / 竖笛 / 吉他 / 贝斯 / 人声 / 合成鼓组 /
-合成垫 / 合成主音 / 合成贝斯 / 合成拨弦）+ 任意 `.synth.json` 自定义合成音色、11 个效果、
-44.1kHz 立体声 WAV。内置 `vocal` 音色只有元音吟唱（没有歌词）；音频分析里人声是原唱分轨原样保留。
-没有 MIDI 导出、速度渐变、延音踏板（导入有 `import-midi`）。
+合成垫 / 合成主音 / 合成贝斯 / 合成拨弦）+ 任意 `.synth.json` 自定义合成音色、20 个效果、
+编组总线与发送返回、44.1kHz 立体声 WAV，以及 **MIDI 导出**（`export-midi`，可进 DAW 继续编曲）。
+内置 `vocal` 音色只有元音吟唱（没有歌词）；音频分析里人声是原唱分轨原样保留。
+没有速度渐变、延音踏板（导入有 `import-midi`）。
 
 ## 开工前检查
 
@@ -146,12 +147,31 @@ python -m musicgen effect remove songs/MySong/MySong.musicproj --track 1 --index
 python -m musicgen effect save songs/MySong/MySong.musicproj --track 1 -o fx/bus.fx.json
 python -m musicgen effect check fx/bus.fx.json
 python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script fx/bus.fx.json
+
+# 总线与发送（混音：鼓组压缩、音乐总线 EQ、混响返回）
+python -m musicgen bus add songs/MySong/MySong.musicproj --name Drums --gain -1dB
+python -m musicgen bus add songs/MySong/MySong.musicproj --name Reverb --gain -5dB
+python -m musicgen effect add songs/MySong/MySong.musicproj --bus Drums --type compressor -p threshold=-20 -p ratio=3.5
+python -m musicgen effect add songs/MySong/MySong.musicproj --bus Reverb --type reverb -p decay=3.2 -p mix=1
+python -m musicgen track edit songs/MySong/MySong.musicproj --track 1 --bus Drums
+python -m musicgen bus send songs/MySong/MySong.musicproj --track 3 --to Reverb --amount 30%
+python -m musicgen bus list songs/MySong/MySong.musicproj
+
+# 交付 MIDI（要进 DAW 时）
+python -m musicgen export-midi songs/MySong/MySong.musicproj -o output/MySong.mid
+python -m musicgen export-midi songs/MySong/MySong.musicproj --split output/midi
 ```
 
 效果链：`stereo` 立体 / `echo` 回声 / `fade` 淡入淡出 / `electro` 电音 / `8bit` `4bit` `2bit` 位深压缩 /
-`eq` 均衡（`low` `mid` `high` `mid_freq`）/ `drive` 失真（`amount` `tone` `mix`）/
-`compressor` 压缩（`threshold` `ratio` `release` `makeup`）/ `chorus` 合唱（`rate` `depth` `mix`），参数只写要改的。
-逆向精修补频谱用 `eq`，补谐波密度用 `drive`，压动态用 `compressor`，加宽用 `chorus`。
+`eq` 均衡 / `drive` 失真 / `compressor` 压缩 / `chorus` 合唱 /
+`filter` 滤波（`mode` `freq` `resonance` `lfo_rate`）/ `tremolo` 颤音 / `autopan` 自动声像 /
+`flanger` 镶边 / `phaser` 相位 / `tape` 磁带 / `limiter` 限制 / `gate` 噪声门 / `reverb` 混响，
+参数只写要改的。
+
+**混音用法**：鼓组挂一条 bus 做 `compressor`（比逐轨压更紧、更整齐），音乐总线挂 `eq` + `stereo`，
+混响和延迟各建一条返回 bus（`reverb` / `echo` 的 `mix` 设 1 或接近 1），轨道用 `send` 送量。
+母带最后放 `limiter`（`ceiling=-1`）。总线不要绕成环——总线之间不支持互相发送。
+逆向精修补频谱用 `eq`，补谐波密度用 `drive`，压动态用 `compressor`，加宽用 `chorus` 或 `stereo`。
 `fade` 放在链尾；回声尾巴受 `length` 限制，需要余韵就加 `tail`；`electro` 只给 1–2 条轨，别全铺。
 `8bit` / `4bit` / `2bit` 位深固定，调 `rate`（越低越破）与 `mix`（留一点干声更耐听），插入后响度不变。
 
@@ -173,6 +193,10 @@ python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script
 | 9 | XML 特殊字符要转义 | `&` 未转义、注释里出现 `--` 都会解析失败（退出码 2） | 写 `&amp;`，注释里别用连续两个减号 |
 | 10 | `instrument="synth"` 必须带 `patch` | 只警告并静默换成兜底合成器，音色完全不对 | 写 `patch="../synths/xxx.synth.json"`，相对音轨文件；先 `synth check` 过一遍 |
 | 11 | 合成音脚本的 `oscillators` 只认 `sine/square/saw/triangle/noise` | 写错波形名载入失败，同样退回兜底音色 | 参数表见 `synth show <名>`；改完必须 `synth check` |
+| 12 | 总线名写错不会报错 | 只给警告，该轨直接并入母带、发送被忽略，混音完全不是你设想的 | 写完跑 `bus list` 核对归属与发送；`validate` 也会提示不存在的总线 |
+| 13 | 总线之间不能互相发送 | 写了也不会生效（结构上禁止，避免反馈环） | 要串联就放在同一条总线的效果链里，按顺序排 |
+| 14 | 返回总线的混响必须 `mix=1` | 留了干声会和主路径叠加，听起来像重影 | 返回总线 `mix=1`，用轨道 `send` 量控制湿度 |
+| 15 | MIDI 导出只带音符、弯音与音色号 | 效果链、总线、混音不会被写进去（那是音频层的事） | 要听成品还是交 WAV；MIDI 是给 DAW 继续编曲用的 |
 
 ## 交付
 
@@ -192,10 +216,10 @@ python -m musicgen effect apply songs/MySong/MySong.musicproj --track 2 --script
 
 | 文件 | 什么时候读 |
 | --- | --- |
-| `references/编曲设计.md` | 通用编曲方法（功能层、曲式、和声、配器、织体、律动、风格配方）。先按它设计，再看 §13 映射到本项目的 9 件基础乐器（+4 件合成音色） |
-| `references/工程格式.md` | 写或改 `*.musicproj` / `*.track.xml` 之前 |
-| `references/混音与验收.md` | 定 gain / pan / reverb、判断成品能不能交时 |
+| `references/编曲设计.md` | 通用编曲方法（功能层、曲式、和声、配器、织体、律动、风格配方）。先按它设计，再看 §13 映射到本项目的 13 件基础音色（+ 任意合成音脚本） |
+| `references/工程格式.md` | 写或改 `*.musicproj` / `*.track.xml` 之前；总线 `<bus>` 与 `<send>` 见 §4.1 |
+| `references/混音与验收.md` | 定 gain / pan / reverb / 总线、判断成品能不能交时；总线工作流见 §4.1 |
 | `references/音频还原.md` | 用户给的是音频而不是需求（「把这首 mp3 还原成工程」）时；含参数、分轨映射、误检清理与验收清单 |
 | `references/逆向判断.md` | 要**精修**还原结果（换音色、上合成音、加效果、拆分层、改段落标签）时；含判据、决策文件 schema 与验收方法 |
 
-仓库 `examples/` 里还有五个可跑范例：`demo`（钢琴小品）、`ensemble`（四重奏）、`twinkle`（儿歌改编）、`band`（含鼓）、`moonlight`（三连音与长踏板模拟）。
+仓库 `examples/` 里还有七个可跑范例：`demo`（钢琴小品）、`ensemble`（四重奏）、`twinkle`（儿歌改编）、`band`（含鼓）、`moonlight`（三连音与长踏板模拟）、`daybreak`（带效果链的五轨）、`mixbus`（总线 + 发送 + 母带限制的混音示范）。
