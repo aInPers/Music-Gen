@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Snare" instrument="drums" group="Drums" gain="-6dB" period="4" repeat="8">
+  <note time="1" dur="0.25" pitch="snare" vel="0.85"/>
+  <note time="3" dur="0.25" pitch="snare" vel="0.8"/>
+</track>

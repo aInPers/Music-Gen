@@ -1346,3 +1346,97 @@ python -m musicgen bundle songs/Song
 `samples_cache`。所以整个工程目录可以拷到别的机器直接 `render`。
 
 合成音色是代码生成的，不需要采样；鼓组是内置合成鼓，也不需要外部文件。
+
+## 21. `group` — 轨道组
+
+组和总线的区别：**组在总线之前**，是编曲层的容器。几条轨道先汇总成一条组信号，
+统一走效果链与推子，再交给组归属的总线。组内轨道自己的增益、声像、效果照旧生效，
+是**叠加**而不是覆盖。
+
+```
+musicgen group list <工程>
+musicgen group add <工程> --name Drums [--gain -2dB] [--pan 0] [--bus Mix]
+musicgen group set <工程> --name Drums [--gain ...] [--pan ...] [--bus ...] [--mute]
+musicgen group remove <工程> --name Drums [--force]
+musicgen group assign <工程> --track Kick [--group Drums]     # 不给 --group 表示移出
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `--gain` | 组推子，写 `-2dB` 或 `-2` 都行 |
+| `--pan` | 组声像 −1…+1 |
+| `--bus` | 组输出接到哪条总线，不写直接进母带 |
+| `--force` | 组内还有轨道时强制删除（同时清掉轨道里的 `group` 引用） |
+
+注意：**轨道归组后，自身的 `bus` 不再生效**（去向由组决定），但 `send` 仍然有效，
+所以组内的鼓照样能往混响总线上送。
+
+`group list` 会列出每个组的推子、声像、效果链、曲线数量、组内轨道与输出去向。
+
+## 22. `curve` — 自动化曲线
+
+曲线让增益、声像或效果参数随时间变化，多点连成三次贝塞尔。可以挂在**轨道、组、总线**上。
+
+```
+musicgen curve list <工程> [--track X | --group X | --bus X]
+musicgen curve set <工程> --target gain --points "0:0; 8:-6; 16:0" \
+        [--track X | --group X | --bus X] [--mode bezier|linear|step] [--tension 0.5]
+musicgen curve remove <工程> --target gain [--track X | --group X | --bus X]
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `--target` | `gain` / `pan` / `reverb` / `effect.<序号>.<参数>`（效果序号从 0 起） |
+| `--points` | `拍:值`，分号分隔，如 `"0:0; 8:-6; 16:0"` |
+| `--mode` | `bezier` 平滑（默认）/ `linear` 直线 / `step` 阶跃保持 |
+| `--tension` | 贝塞尔张力，0 = 折线，0.5 标准，>0.7 会过冲 |
+
+值与静态参数的关系：
+
+* `gain` / `pan`：曲线是**相对量**，叠加在静态值上（轨道 −3dB + 曲线 −6dB = 最终 −9dB）。
+  组和轨道各自一条曲线，两级推子叠加。
+* `effect.N.参数`：曲线是**绝对值**，直接覆盖该参数。
+
+```bash
+# 轨道音量：前 8 拍渐入，最后 8 拍收掉
+musicgen curve set song.musicproj --track Piano --target gain --points "0:-12; 8:0; 24:0; 32:-20"
+
+# 滤波器扫频：0 拍 300Hz → 16 拍 4.2kHz → 32 拍 500Hz
+musicgen curve set song.musicproj --track Pad --target effect.0.freq --points "0:300; 16:4200; 32:500"
+
+# 组声像左右摆
+musicgen curve set song.musicproj --group Drums --target pan --points "0:-0.6; 8:0.6; 16:-0.6"
+```
+
+效果参数曲线是分块重算的（93ms 一块、重叠一半加窗），适合滤波、失真、干湿这类参数；
+`echo` / `reverb` 这种长尾效果不要用曲线扫，改用下面的区间。
+
+### 22.1 部分音效与效果叠加
+
+`effect` 支持时间区间，只在某一段生效，边界 20ms 淡入淡出：
+
+```xml
+<effect type="echo" time="250" mix="0.4" start="16" end="24"/>
+```
+
+```bash
+musicgen effect add song.musicproj --track Piano --type echo -p mix=0.4 --start 16 --end 24
+```
+
+叠加的三层：轨道效果链（串联）→ 组效果链（叠加其上）→ 总线效果链（再叠加）。
+所以同一段信号可以同时被“轨道失真 + 组压缩 + 总线磁带”处理，互不覆盖。
+
+## 23. `track edit` 的周期参数
+
+| 参数 | 等价写法 | 说明 |
+| --- | --- | --- |
+| `--period 4` | `--loop-len 4` | 一个 pattern 多长（拍），写上就自动开启循环 |
+| `--repeat 8` | `--loop-count 8` | 重复几次，0 = 到工程结束 |
+| `--offset 2` | — | 整轨起点偏移（拍） |
+| `--gap 0.5` | — | 每次重复之间空几拍 |
+| `--group Drums` | — | 归入组，写 `none` 表示移出 |
+
+```bash
+# 1 小节的鼓 pattern 铺满 8 小节，比手写 8 遍省 7/8 的行数
+musicgen track edit song.musicproj --track Hat --period 1 --repeat 32
+```

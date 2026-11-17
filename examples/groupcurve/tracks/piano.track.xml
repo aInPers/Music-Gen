@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 2 小节和声，重复 4 次；整体音量用曲线做渐入 -->
+<track name="Piano" instrument="piano" group="Music" gain="-8dB" period="8" repeat="4">
+  <send bus="Reverb" amount="0.3"/>
+  <automation target="gain" points="0:-8; 8:0; 28:0; 32:-10"/>
+  <note time="0" dur="2" pitch="A3,C4,E4" vel="0.5"/>
+  <note time="2" dur="2" pitch="G3,B3,D4" vel="0.45"/>
+  <note time="4" dur="2" pitch="F3,A3,C4" vel="0.48"/>
+  <note time="6" dur="2" pitch="E3,G3,B3" vel="0.46"/>
+</track>

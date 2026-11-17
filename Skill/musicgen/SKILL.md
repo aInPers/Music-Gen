@@ -12,7 +12,9 @@ description: 用 MusicGen 命令行把音乐需求做成可交付的 WAV——�
 
 **能力边界**：13 件内置音色（钢琴 / 小提琴 / 大提琴 / 小号 / 竖笛 / 吉他 / 贝斯 / 人声 / 合成鼓组 /
 合成垫 / 合成主音 / 合成贝斯 / 合成拨弦）+ 任意 `.synth.json` 自定义合成音色、20 个效果、
-编组总线与发送返回、44.1kHz 立体声 WAV，以及 **MIDI 导出**（`export-midi`，可进 DAW 继续编曲）。
+编组总线与发送返回、**轨道组**（组效果 / 组推子 / 组曲线）、**多段贝塞尔自动化曲线**
+（增益、声像、效果参数随时间变化）、**部分音效**（只在一段时间生效），
+44.1kHz 立体声 WAV，以及 **MIDI 导出**（`export-midi`，可进 DAW 继续编曲）。
 内置 `vocal` 音色只有元音吟唱（没有歌词）；音频分析里人声是原唱分轨原样保留。
 没有速度渐变、延音踏板（导入有 `import-midi`）。
 
@@ -157,6 +159,22 @@ python -m musicgen track edit songs/MySong/MySong.musicproj --track 1 --bus Drum
 python -m musicgen bus send songs/MySong/MySong.musicproj --track 3 --to Reverb --amount 30%
 python -m musicgen bus list songs/MySong/MySong.musicproj
 
+# 轨道组（编曲层容器：组内轨道先汇总，再统一处理）
+python -m musicgen group add songs/MySong/MySong.musicproj --name Drums --gain -2dB --bus Mix
+python -m musicgen effect add songs/MySong/MySong.musicproj --bus Drums --type compressor -p threshold=-18
+python -m musicgen group assign songs/MySong/MySong.musicproj --track 1 --group Drums
+
+# 自动化曲线（多段贝塞尔；可挂轨道 / 组 / 总线）
+python -m musicgen curve set songs/MySong/MySong.musicproj --track Piano --target gain --points "0:-12; 8:0; 24:0; 32:-20"
+python -m musicgen curve set songs/MySong/MySong.musicproj --track Pad --target effect.0.freq --points "0:300; 16:4200; 32:500"
+python -m musicgen curve list songs/MySong/MySong.musicproj
+
+# 部分音效：回声只在 16–24 拍
+python -m musicgen effect add songs/MySong/MySong.musicproj --track 2 --type echo -p mix=0.4 --start 16 --end 24
+
+# 周期与重复：1 拍 pattern 铺满 32 拍
+python -m musicgen track edit songs/MySong/MySong.musicproj --track Hat --period 1 --repeat 32 --gap 0
+
 # 交付 MIDI（要进 DAW 时）
 python -m musicgen export-midi songs/MySong/MySong.musicproj -o output/MySong.mid
 python -m musicgen export-midi songs/MySong/MySong.musicproj --split output/midi
@@ -167,6 +185,10 @@ python -m musicgen export-midi songs/MySong/MySong.musicproj --split output/midi
 `filter` 滤波（`mode` `freq` `resonance` `lfo_rate`）/ `tremolo` 颤音 / `autopan` 自动声像 /
 `flanger` 镶边 / `phaser` 相位 / `tape` 磁带 / `limiter` 限制 / `gate` 噪声门 / `reverb` 混响，
 参数只写要改的。
+
+**组与曲线怎么选**：想让几条轨道「粘」在一起（鼓组、弦乐组）→ 用 `group`；
+只想让某轨音量/声像随时间动 → 用轨道上的 `curve`；想让某个效果只在一段出现 → 给 `effect` 写 `start`/`end`。
+组和轨道可以同时有曲线，两级叠加。
 
 **混音用法**：鼓组挂一条 bus 做 `compressor`（比逐轨压更紧、更整齐），音乐总线挂 `eq` + `stereo`，
 混响和延迟各建一条返回 bus（`reverb` / `echo` 的 `mix` 设 1 或接近 1），轨道用 `send` 送量。

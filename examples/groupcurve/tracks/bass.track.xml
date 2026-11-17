@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<track name="Bass" instrument="bass" group="Music" gain="-8dB" period="4" repeat="8">
+  <effect type="eq" low="1.5" mid="-1" high="-2"/>
+  <note time="0" dur="1.5" pitch="A1" vel="0.7"/>
+  <note time="1.5" dur="1" pitch="A1" vel="0.55"/>
+  <note time="2.5" dur="1.5" pitch="G1" vel="0.65"/>
+</track>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 1 小节写一次，repeat 8 次铺满整首 -->
+<track name="Kick" instrument="drums" group="Drums" gain="-2dB" period="4" repeat="8">
+  <note time="0" dur="0.25" pitch="kick" vel="0.95"/>
+  <note time="1.5" dur="0.25" pitch="kick" vel="0.6"/>
+  <note time="2.5" dur="0.25" pitch="kick" vel="0.8"/>
+</track>
